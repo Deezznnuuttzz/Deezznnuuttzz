@@ -191,6 +191,31 @@
     body { background: #fff; }
   }
   ::placeholder { color: #b3b8c2; }
+
+  .photo-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 10px;
+  }
+  .photo-tile {
+    cursor: pointer;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    background: var(--card);
+  }
+  .photo-tile img { width: 100%; height: 110px; object-fit: cover; display: block; background: #eee; }
+  .photo-tile-meta { padding: 6px 8px; }
+  .photo-tile-job { font-size: 12px; font-weight: 600; }
+  .photo-tile-date { font-size: 11px; color: var(--text-dim); }
+  .photo-strip { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 12px; }
+  .photo-strip img { height: 80px; border-radius: 6px; }
+  .match-note { font-size: 12.5px; margin-bottom: 10px; }
+  .match-note.ok { color: var(--accent); }
+  .match-note.warn { color: var(--warn); }
+  .gps-row { display: flex; gap: 6px; }
+  .gps-row input { flex: 1; }
+  .gps-row button { white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -212,6 +237,7 @@
   <button data-tab="bills">Bills</button>
   <button data-tab="time">Time Tracker</button>
   <button data-tab="tasks">Tasks</button>
+  <button data-tab="photos">Photos</button>
   <button data-tab="reports">Reports</button>
 </nav>
 
@@ -225,6 +251,7 @@
   <section id="tab-bills" class="section"></section>
   <section id="tab-time" class="section"></section>
   <section id="tab-tasks" class="section"></section>
+  <section id="tab-photos" class="section"></section>
   <section id="tab-reports" class="section"></section>
 
 </main>
@@ -232,6 +259,8 @@
 <div class="modal-backdrop" id="modal-backdrop">
   <div class="modal" id="modal"></div>
 </div>
+
+<input type="file" id="photo-input" accept="image/*" capture="environment" multiple style="display:none">
 
 <script>
 (function () {
@@ -267,6 +296,103 @@
 
   function save() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+  }
+
+  // ---------- Photo storage (IndexedDB — photos are too large for localStorage) ----------
+  const PHOTO_DB_NAME = 'atc_photos_db';
+  const PHOTO_STORE = 'photos';
+  let photoDB = null;
+
+  function openPhotoDB() {
+    return new Promise((resolve, reject) => {
+      if (photoDB) { resolve(photoDB); return; }
+      if (!window.indexedDB) { resolve(null); return; }
+      const req = indexedDB.open(PHOTO_DB_NAME, 1);
+      req.onupgradeneeded = () => {
+        const d = req.result;
+        if (!d.objectStoreNames.contains(PHOTO_STORE)) d.createObjectStore(PHOTO_STORE, { keyPath: 'id' });
+      };
+      req.onsuccess = () => { photoDB = req.result; resolve(photoDB); };
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function addPhotoRecord(photo) {
+    const d = await openPhotoDB();
+    if (!d) return;
+    return new Promise((resolve, reject) => {
+      const tx = d.transaction(PHOTO_STORE, 'readwrite');
+      tx.objectStore(PHOTO_STORE).put(photo);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async function getAllPhotoRecords() {
+    const d = await openPhotoDB();
+    if (!d) return [];
+    return new Promise((resolve, reject) => {
+      const tx = d.transaction(PHOTO_STORE, 'readonly');
+      const req = tx.objectStore(PHOTO_STORE).getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function deletePhotoRecord(id) {
+    const d = await openPhotoDB();
+    if (!d) return;
+    return new Promise((resolve, reject) => {
+      const tx = d.transaction(PHOTO_STORE, 'readwrite');
+      tx.objectStore(PHOTO_STORE).delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // ---------- Geolocation + job-site matching ----------
+  function getCurrentPosition() {
+    return new Promise(resolve => {
+      if (!navigator.geolocation) { resolve(null); return; }
+      navigator.geolocation.getCurrentPosition(
+        pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
+        () => resolve(null),
+        { enableHighAccuracy: true, timeout: 8000 }
+      );
+    });
+  }
+
+  function haversineMiles(lat1, lng1, lat2, lng2) {
+    const R = 3958.8;
+    const toRad = d => d * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  function nearestJob(lat, lng) {
+    let best = null, bestDist = Infinity;
+    db.jobs.forEach(j => {
+      if (j.lat == null || j.lng == null) return;
+      const dist = haversineMiles(lat, lng, j.lat, j.lng);
+      if (dist < bestDist) { bestDist = dist; best = j; }
+    });
+    return best ? { job: best, distanceMiles: bestDist } : null;
+  }
+
+  function fmtDistance(miles) {
+    if (miles < 0.19) return Math.round(miles * 5280) + ' ft';
+    return miles.toFixed(1) + ' mi';
   }
 
   // ---------- lookups ----------
@@ -317,6 +443,7 @@
     if (name === 'bills') renderBills();
     if (name === 'time') renderTime();
     if (name === 'tasks') renderTasks();
+    if (name === 'photos') renderPhotos();
     if (name === 'reports') renderReports();
   }
 
@@ -367,7 +494,9 @@
         const invoiced = jobInvoicedTotal(j.id);
         const overBudget = j.budget && cost > Number(j.budget);
         return `<tr>
-          <td><a class="job-link" data-action="edit-job" data-id="${j.id}">${escapeHtml(j.name)}</a></td>
+          <td><a class="job-link" data-action="edit-job" data-id="${j.id}">${escapeHtml(j.name)}</a>
+            <button class="ghost" style="margin-left:6px;padding:2px 6px;font-size:11px;" data-action="view-job-photos" data-id="${j.id}" title="View photos">📷</button>
+          </td>
           <td>${escapeHtml(j.type)}</td>
           <td>${escapeHtml(clientName(j.clientId))}</td>
           <td><span class="badge ${j.status}">${escapeHtml(j.status)}</span></td>
@@ -411,6 +540,13 @@
         </select>
       </div>
       <div class="field"><label>Address</label><input id="f-address" value="${escapeHtml(job.address || '')}"></div>
+      <div class="field"><label>Job Site GPS <span style="font-weight:400;color:var(--text-dim);">(optional — powers photo auto-sync)</span></label>
+        <div class="gps-row">
+          <input id="f-lat" type="number" step="any" placeholder="Latitude" value="${job.lat != null ? job.lat : ''}">
+          <input id="f-lng" type="number" step="any" placeholder="Longitude" value="${job.lng != null ? job.lng : ''}">
+          <button type="button" class="ghost" id="use-my-location">Use My Location</button>
+        </div>
+      </div>
       <div class="field"><label>Budget ($)</label><input id="f-budget" type="number" step="0.01" value="${job.budget || ''}"></div>
       <div class="field"><label>Notes</label><textarea id="f-notes">${escapeHtml(job.notes || '')}</textarea></div>
       <div class="modal-actions">
@@ -419,12 +555,28 @@
       </div>
     `);
     document.getElementById('f-client').value = job.clientId || '';
+    document.getElementById('use-my-location').addEventListener('click', async () => {
+      const btn = document.getElementById('use-my-location');
+      btn.textContent = 'Locating…'; btn.disabled = true;
+      const pos = await getCurrentPosition();
+      btn.textContent = 'Use My Location'; btn.disabled = false;
+      if (pos) {
+        document.getElementById('f-lat').value = pos.lat.toFixed(6);
+        document.getElementById('f-lng').value = pos.lng.toFixed(6);
+      } else {
+        alert('Could not get your location. Check location permissions for this page (note: some mobile browsers block location on files opened locally — hosting the page fixes this).');
+      }
+    });
     document.getElementById('save-job').addEventListener('click', () => {
       job.name = document.getElementById('f-name').value.trim() || 'Untitled job';
       job.type = document.getElementById('f-type').value;
       job.clientId = document.getElementById('f-client').value || null;
       job.status = document.getElementById('f-status').value;
       job.address = document.getElementById('f-address').value.trim();
+      const latVal = parseFloat(document.getElementById('f-lat').value);
+      const lngVal = parseFloat(document.getElementById('f-lng').value);
+      job.lat = isNaN(latVal) ? null : latVal;
+      job.lng = isNaN(lngVal) ? null : lngVal;
       job.budget = parseFloat(document.getElementById('f-budget').value) || 0;
       job.notes = document.getElementById('f-notes').value.trim();
       if (!isEdit) db.jobs.push(job);
@@ -787,6 +939,119 @@
     });
   }
 
+  // ---------- Photos ----------
+  let photoJobFilter = 'all';
+
+  async function renderPhotos() {
+    const el = document.getElementById('tab-photos');
+    const jobOptions = db.jobs.map(j => `<option value="${j.id}">${escapeHtml(j.name)}</option>`).join('');
+    el.innerHTML = `
+      <div class="toolbar">
+        <h2>Site Photos</h2>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <select id="photo-filter"><option value="all">All jobs</option>${jobOptions}<option value="none">Unassigned</option></select>
+          <button class="primary" data-action="add-photo">+ Add Photo</button>
+        </div>
+      </div>
+      <div id="photo-grid" class="empty">Loading…</div>
+    `;
+    document.getElementById('photo-filter').value = photoJobFilter;
+    document.getElementById('photo-filter').addEventListener('change', e => {
+      photoJobFilter = e.target.value;
+      renderPhotoGrid();
+    });
+    await renderPhotoGrid();
+  }
+
+  async function renderPhotoGrid() {
+    const grid = document.getElementById('photo-grid');
+    if (!grid) return;
+    let photos = await getAllPhotoRecords();
+    if (photoJobFilter === 'none') photos = photos.filter(p => !p.jobId);
+    else if (photoJobFilter !== 'all') photos = photos.filter(p => p.jobId === photoJobFilter);
+    photos.sort((a, b) => (b.takenAt || '').localeCompare(a.takenAt || ''));
+    if (!photos.length) { grid.className = 'empty'; grid.innerHTML = 'No photos yet.'; return; }
+    grid.className = 'photo-grid';
+    grid.innerHTML = photos.map(p => `
+      <div class="photo-tile" data-action="view-photo" data-id="${p.id}">
+        <img src="${p.dataUrl}" loading="lazy">
+        <div class="photo-tile-meta">
+          <div class="photo-tile-job">${escapeHtml(jobName(p.jobId) || 'Unassigned')}</div>
+          <div class="photo-tile-date">${p.takenAt ? fmtDate(p.takenAt.slice(0, 10)) : ''}</div>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  async function handleNewPhotos(files) {
+    const pos = await getCurrentPosition();
+    const match = pos ? nearestJob(pos.lat, pos.lng) : null;
+    const dataUrls = await Promise.all(files.map(readFileAsDataUrl));
+    openPhotoUploadModal(dataUrls, pos, match);
+  }
+
+  function openPhotoUploadModal(dataUrls, pos, match) {
+    const jobOptions = db.jobs.map(j => `<option value="${j.id}">${escapeHtml(j.name)}</option>`).join('');
+    const matched = match && match.distanceMiles < 1;
+    const matchNote = !pos
+      ? '<div class="match-note warn">Location unavailable — select the job manually. (On phones, this page needs to be opened over https or from localhost for location to work — a bare local file is often blocked.)</div>'
+      : matched
+        ? `<div class="match-note ok">Matched to <strong>${escapeHtml(match.job.name)}</strong> (${fmtDistance(match.distanceMiles)} away)</div>`
+        : '<div class="match-note warn">No job site nearby — select manually, or open the job and set its GPS location.</div>';
+
+    openModal(`
+      <h3>Add ${dataUrls.length > 1 ? dataUrls.length + ' Photos' : 'Photo'}</h3>
+      <div class="photo-strip">${dataUrls.map(u => `<img src="${u}">`).join('')}</div>
+      ${matchNote}
+      <div class="field"><label>Job</label><select id="f-job"><option value="">— unassigned —</option>${jobOptions}</select></div>
+      <div class="field"><label>Taken By</label><input id="f-takenby" placeholder="e.g. Mike R."></div>
+      <div class="field"><label>Caption / Notes</label><textarea id="f-caption" placeholder="e.g. Framing complete, north wall"></textarea></div>
+      <div class="modal-actions">
+        <button class="secondary" data-action="close-modal">Cancel</button>
+        <button class="primary" id="save-photos">Save</button>
+      </div>
+    `);
+    if (matched) document.getElementById('f-job').value = match.job.id;
+
+    document.getElementById('save-photos').addEventListener('click', async () => {
+      const jobId = document.getElementById('f-job').value || null;
+      const takenBy = document.getElementById('f-takenby').value.trim();
+      const caption = document.getElementById('f-caption').value.trim();
+      const saveBtn = document.getElementById('save-photos');
+      saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+      for (const dataUrl of dataUrls) {
+        await addPhotoRecord({
+          id: uid(),
+          jobId, takenBy, caption,
+          lat: pos ? pos.lat : null,
+          lng: pos ? pos.lng : null,
+          accuracy: pos ? pos.accuracy : null,
+          takenAt: new Date().toISOString(),
+          dataUrl
+        });
+      }
+      closeModal();
+      if (document.querySelector('#tabs button.active').dataset.tab === 'photos') renderPhotoGrid();
+    });
+  }
+
+  async function viewPhoto(id) {
+    const photos = await getAllPhotoRecords();
+    const p = photos.find(x => x.id === id);
+    if (!p) return;
+    openModal(`
+      <img src="${p.dataUrl}" style="width:100%;border-radius:8px;margin-bottom:12px;">
+      <div style="font-size:13.5px;color:var(--text-dim);margin-bottom:4px;"><strong>Job:</strong> ${escapeHtml(jobName(p.jobId) || 'Unassigned')}</div>
+      <div style="font-size:13.5px;color:var(--text-dim);margin-bottom:4px;"><strong>Taken:</strong> ${p.takenAt ? new Date(p.takenAt).toLocaleString() : ''}${p.takenBy ? ' by ' + escapeHtml(p.takenBy) : ''}</div>
+      ${p.lat != null ? `<div style="font-size:13.5px;color:var(--text-dim);margin-bottom:4px;"><strong>Location:</strong> ${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}</div>` : ''}
+      ${p.caption ? `<div style="font-size:13.5px;margin-bottom:12px;">${escapeHtml(p.caption)}</div>` : ''}
+      <div class="modal-actions">
+        <button class="secondary" data-action="close-modal">Close</button>
+        <button class="ghost danger" data-action="delete-photo" data-id="${p.id}">Delete Photo</button>
+      </div>
+    `);
+  }
+
   // ---------- Reports ----------
   function renderReports() {
     const el = document.getElementById('tab-reports');
@@ -900,7 +1165,28 @@
       case 'delete-task':
         if (confirm('Delete this task?')) { db.tasks = db.tasks.filter(t => t.id !== id); save(); renderAll(); }
         break;
+
+      case 'add-photo':
+        document.getElementById('photo-input').value = '';
+        document.getElementById('photo-input').click();
+        break;
+      case 'view-photo': viewPhoto(id); break;
+      case 'delete-photo':
+        if (confirm('Delete this photo?')) {
+          deletePhotoRecord(id).then(() => { closeModal(); renderPhotoGrid(); });
+        }
+        break;
+      case 'view-job-photos':
+        photoJobFilter = id;
+        setTab('photos');
+        break;
     }
+  });
+
+  document.getElementById('photo-input').addEventListener('change', async e => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    await handleNewPhotos(files);
   });
 
   // ---------- init ----------
