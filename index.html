@@ -230,6 +230,7 @@
 
 <nav id="tabs">
   <button data-tab="dashboard" class="active">Dashboard</button>
+  <button data-tab="estimates">Estimates</button>
   <button data-tab="jobs">Jobs</button>
   <button data-tab="clients">Clients</button>
   <button data-tab="vendors">Vendors</button>
@@ -244,6 +245,7 @@
 <main>
 
   <section id="tab-dashboard" class="section active"></section>
+  <section id="tab-estimates" class="section"></section>
   <section id="tab-jobs" class="section"></section>
   <section id="tab-clients" class="section"></section>
   <section id="tab-vendors" class="section"></section>
@@ -275,7 +277,7 @@
   function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
   function defaultData() {
-    return { clients: [], vendors: [], jobs: [], invoices: [], bills: [], timeEntries: [], tasks: [], catalog: [] };
+    return { clients: [], vendors: [], jobs: [], invoices: [], bills: [], timeEntries: [], tasks: [], catalog: [], estimates: [], changeOrders: [] };
   }
 
   let db = load();
@@ -400,16 +402,6 @@
   function jobName(id) { const j = db.jobs.find(x => x.id === id); return j ? j.name : '—'; }
   function vendorName(id) { const v = db.vendors.find(x => x.id === id); return v ? v.name : '—'; }
 
-  function jobActualCost(jobId) {
-    const billTotal = db.bills.filter(b => b.jobId === jobId).reduce((s, b) => s + Number(b.amount || 0), 0);
-    const laborTotal = db.timeEntries.filter(t => t.jobId === jobId).reduce((s, t) => s + Number(t.hours || 0) * Number(t.rate || 0), 0);
-    return billTotal + laborTotal;
-  }
-
-  function jobInvoicedTotal(jobId) {
-    return db.invoices.filter(i => i.jobId === jobId).reduce((s, i) => s + lineItemsTotal(i.lineItems), 0);
-  }
-
   function lineItemsTotal(items) {
     return (items || []).reduce((s, li) => s + Number(li.qty || 0) * Number(li.rate || 0), 0);
   }
@@ -419,6 +411,87 @@
     if (inv.status === 'draft') return 'draft';
     if (inv.dueDate && inv.dueDate < todayStr()) return 'overdue';
     return 'sent';
+  }
+
+  // ---------- Phases, change orders, and WIP math ----------
+  const COST_TYPES = [
+    { key: 'labor', label: 'Labor' },
+    { key: 'material', label: 'Material' },
+    { key: 'equipment', label: 'Equipment' },
+    { key: 'sub', label: 'Subcontractor' }
+  ];
+
+  function jobPhases(jobId) {
+    const j = db.jobs.find(x => x.id === jobId);
+    return (j && Array.isArray(j.phases)) ? j.phases : [];
+  }
+
+  function phaseName(jobId, phaseId) {
+    const p = jobPhases(jobId).find(x => x.id === phaseId);
+    return p ? p.name : null;
+  }
+
+  function phaseBudgetTotal(phase) {
+    return COST_TYPES.reduce((s, ct) => s + Number(phase.budget?.[ct.key] || 0), 0);
+  }
+
+  // Total budgeted cost for a job: sum of phase budgets, or the flat job budget
+  // when no phases have been set up.
+  function jobBudgetedCost(jobId) {
+    const phases = jobPhases(jobId);
+    if (phases.length) return phases.reduce((s, p) => s + phaseBudgetTotal(p), 0);
+    const j = db.jobs.find(x => x.id === jobId);
+    return Number(j?.budget || 0);
+  }
+
+  // Actual cost, optionally narrowed to a single phase.
+  function jobActualCostBy(jobId, phaseId) {
+    const matches = r => r.jobId === jobId && (phaseId === undefined || (r.phaseId || null) === phaseId);
+    const billTotal = db.bills.filter(matches).reduce((s, b) => s + Number(b.amount || 0), 0);
+    const laborTotal = db.timeEntries.filter(matches).reduce((s, t) => s + Number(t.hours || 0) * Number(t.rate || 0), 0);
+    return billTotal + laborTotal;
+  }
+
+  function approvedChangeOrderTotal(jobId) {
+    return db.changeOrders
+      .filter(c => c.jobId === jobId && c.status === 'approved')
+      .reduce((s, c) => s + Number(c.amount || 0), 0);
+  }
+
+  // Contract value including approved change orders.
+  function jobContractValue(jobId) {
+    const j = db.jobs.find(x => x.id === jobId);
+    return Number(j?.contractValue || 0) + approvedChangeOrderTotal(jobId);
+  }
+
+  function invoiceTotal(inv) {
+    const gross = lineItemsTotal(inv.lineItems);
+    const retainage = gross * (Number(inv.retainagePercent || 0) / 100);
+    return gross - retainage;
+  }
+
+  function jobRetainageHeld(jobId) {
+    return db.invoices.filter(i => i.jobId === jobId)
+      .reduce((s, i) => s + lineItemsTotal(i.lineItems) * (Number(i.retainagePercent || 0) / 100), 0);
+  }
+
+  // Work-in-progress position for a job. Percent complete is cost-based:
+  // cost to date / total budgeted cost. Earned revenue is contract value
+  // times percent complete; billing ahead of that is overbilled, behind is
+  // underbilled.
+  function jobWip(jobId) {
+    const contract = jobContractValue(jobId);
+    const budgetedCost = jobBudgetedCost(jobId);
+    const costToDate = jobActualCostBy(jobId);
+    const billedToDate = db.invoices.filter(i => i.jobId === jobId)
+      .reduce((s, i) => s + lineItemsTotal(i.lineItems), 0);
+    const pctComplete = budgetedCost > 0 ? Math.min(costToDate / budgetedCost, 1) : 0;
+    const earned = contract * pctComplete;
+    return {
+      contract, budgetedCost, costToDate, billedToDate, pctComplete, earned,
+      overUnder: billedToDate - earned,
+      projectedMargin: contract - Math.max(budgetedCost, costToDate)
+    };
   }
 
   // ---------- tabs ----------
@@ -436,6 +509,7 @@
 
   function render(name) {
     if (name === 'dashboard') renderDashboard();
+    if (name === 'estimates') renderEstimates();
     if (name === 'jobs') renderJobs();
     if (name === 'clients') renderClients();
     if (name === 'vendors') renderVendors();
@@ -455,11 +529,11 @@
   // ---------- Dashboard ----------
   function renderDashboard() {
     const activeJobs = db.jobs.filter(j => j.status === 'active').length;
-    const unbilled = db.jobs.reduce((s, j) => {
-      const invoiced = jobInvoicedTotal(j.id);
-      const cost = jobActualCost(j.id);
-      return s + Math.max(0, cost - invoiced);
-    }, 0);
+    const unbilled = db.jobs
+      .filter(j => j.status === 'active')
+      .reduce((s, j) => s + Math.max(0, -jobWip(j.id).overUnder), 0);
+    const pendingCOs = db.changeOrders.filter(c => c.status === 'pending').length;
+    const openEstimates = db.estimates.filter(e => e.status === 'draft' || e.status === 'sent').length;
     const overdueInvoices = db.invoices.filter(i => invoiceStatus(i) === 'overdue').length;
     const pendingTime = db.timeEntries.filter(t => !t.approved).length;
     const openTasks = db.tasks.filter(t => !t.done).length;
@@ -470,8 +544,12 @@
       <div class="toolbar"><h2>Overview</h2></div>
       <div class="cards">
         <div class="stat"><div class="label">Active Jobs</div><div class="value">${activeJobs}</div></div>
-        <div class="stat"><div class="label">Unbilled Cost</div><div class="value ${unbilled > 0 ? 'warn' : ''}">${fmtMoney(unbilled)}</div></div>
+        <div class="stat"><div class="label">Underbilled</div><div class="value ${unbilled > 0 ? 'warn' : 'ok'}">${fmtMoney(unbilled)}</div>
+          <div style="font-size:11px;color:var(--text-dim);">ready to invoice</div>
+        </div>
         <div class="stat"><div class="label">Overdue Invoices</div><div class="value ${overdueInvoices > 0 ? 'warn' : 'ok'}">${overdueInvoices}</div></div>
+        <div class="stat"><div class="label">Open Estimates</div><div class="value">${openEstimates}</div></div>
+        <div class="stat"><div class="label">Change Orders Pending</div><div class="value ${pendingCOs > 0 ? 'warn' : 'ok'}">${pendingCOs}</div></div>
         <div class="stat"><div class="label">Time Pending Approval</div><div class="value ${pendingTime > 0 ? 'warn' : 'ok'}">${pendingTime}</div></div>
         <div class="stat"><div class="label">Open Tasks</div><div class="value">${openTasks}</div></div>
         <div class="stat"><div class="label">Overdue Tasks</div><div class="value ${overdueTasks > 0 ? 'warn' : 'ok'}">${overdueTasks}</div></div>
@@ -485,36 +563,231 @@
   function jobsTable(jobs, full) {
     if (!jobs.length) return '<div class="empty">No jobs yet.</div>';
     return `<table><thead><tr>
-        <th>Job</th><th>Type</th><th>Client</th><th>Status</th>
-        <th class="num">Budget</th><th class="num">Actual Cost</th><th class="num">Invoiced</th>
+        <th>Job</th><th>Client</th><th>Status</th>
+        <th class="num">Contract</th><th class="num">Cost Budget</th><th class="num">Actual Cost</th><th class="num">% Compl.</th>
         ${full ? '<th></th>' : ''}
       </tr></thead><tbody>
       ${jobs.map(j => {
-        const cost = jobActualCost(j.id);
-        const invoiced = jobInvoicedTotal(j.id);
-        const overBudget = j.budget && cost > Number(j.budget);
+        const w = jobWip(j.id);
+        const overBudget = w.budgetedCost > 0 && w.costToDate > w.budgetedCost;
         return `<tr>
-          <td><a class="job-link" data-action="edit-job" data-id="${j.id}">${escapeHtml(j.name)}</a>
-            <button class="ghost" style="margin-left:6px;padding:2px 6px;font-size:11px;" data-action="view-job-photos" data-id="${j.id}" title="View photos">📷</button>
+          <td><a class="job-link" data-action="open-job" data-id="${j.id}">${escapeHtml(j.name)}</a>
+            <div style="font-size:11px;color:var(--text-dim);">${escapeHtml(j.type)}</div>
           </td>
-          <td>${escapeHtml(j.type)}</td>
           <td>${escapeHtml(clientName(j.clientId))}</td>
           <td><span class="badge ${j.status}">${escapeHtml(j.status)}</span></td>
-          <td class="num">${j.budget ? fmtMoney(j.budget) : '—'}</td>
-          <td class="num"><span class="badge ${overBudget ? 'over' : ''}">${fmtMoney(cost)}</span></td>
-          <td class="num">${fmtMoney(invoiced)}</td>
+          <td class="num">${w.contract ? fmtMoney(w.contract) : '—'}</td>
+          <td class="num">${w.budgetedCost ? fmtMoney(w.budgetedCost) : '—'}</td>
+          <td class="num"><span class="badge ${overBudget ? 'over' : ''}">${fmtMoney(w.costToDate)}</span></td>
+          <td class="num">${w.budgetedCost ? Math.round(w.pctComplete * 100) + '%' : '—'}</td>
           ${full ? `<td><button class="ghost danger" data-action="delete-job" data-id="${j.id}">Delete</button></td>` : ''}
         </tr>`;
       }).join('')}
       </tbody></table>`;
   }
 
+  let currentJobId = null;
+
   function renderJobs() {
     const el = document.getElementById('tab-jobs');
+    if (currentJobId && db.jobs.some(j => j.id === currentJobId)) {
+      renderJobDetail(el, currentJobId);
+      return;
+    }
+    currentJobId = null;
     el.innerHTML = `
       <div class="toolbar"><h2>Jobs</h2><button class="primary" data-action="new-job">+ New Job</button></div>
       ${jobsTable(db.jobs, true)}
     `;
+  }
+
+  function renderJobDetail(el, jobId) {
+    const job = db.jobs.find(j => j.id === jobId);
+    const w = jobWip(jobId);
+    const phases = jobPhases(jobId);
+    const cos = db.changeOrders.filter(c => c.jobId === jobId);
+    const jobInvoices = db.invoices.filter(i => i.jobId === jobId);
+    const unphasedCost = jobActualCostBy(jobId, null);
+
+    const phaseRows = phases.map(p => {
+      const actual = jobActualCostBy(jobId, p.id);
+      const budget = phaseBudgetTotal(p);
+      const over = budget > 0 && actual > budget;
+      return `<tr>
+        <td>${escapeHtml(p.name)}</td>
+        ${COST_TYPES.map(ct => `<td class="num">${Number(p.budget?.[ct.key]) ? fmtMoney(p.budget[ct.key]) : '—'}</td>`).join('')}
+        <td class="num"><strong>${fmtMoney(budget)}</strong></td>
+        <td class="num"><span class="badge ${over ? 'over' : ''}">${fmtMoney(actual)}</span></td>
+        <td class="num">${budget > 0 ? Math.round(actual / budget * 100) + '%' : '—'}</td>
+        <td>
+          <button class="ghost" data-action="edit-phase" data-id="${p.id}">Edit</button>
+          <button class="ghost danger" data-action="delete-phase" data-id="${p.id}">×</button>
+        </td>
+      </tr>`;
+    }).join('');
+
+    el.innerHTML = `
+      <div class="toolbar">
+        <div>
+          <button class="ghost" data-action="back-to-jobs">← All Jobs</button>
+          <h2 style="margin-top:8px;">${escapeHtml(job.name)}</h2>
+          <div style="font-size:12.5px;color:var(--text-dim);">
+            ${escapeHtml(clientName(job.clientId))}${job.address ? ' — ' + escapeHtml(job.address) : ''}
+            <span class="badge ${job.status}" style="margin-left:6px;">${escapeHtml(job.status)}</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="ghost" data-action="edit-job" data-id="${job.id}">Edit Job</button>
+          <button class="ghost" data-action="view-job-photos" data-id="${job.id}">📷 Photos</button>
+          <button class="primary" data-action="progress-invoice" data-id="${job.id}">Progress Invoice</button>
+        </div>
+      </div>
+
+      <div class="cards">
+        <div class="stat"><div class="label">Contract Value</div><div class="value">${fmtMoney(w.contract)}</div>
+          ${approvedChangeOrderTotal(jobId) ? `<div style="font-size:11px;color:var(--text-dim);">incl. ${fmtMoney(approvedChangeOrderTotal(jobId))} in change orders</div>` : ''}
+        </div>
+        <div class="stat"><div class="label">Cost to Date</div><div class="value ${w.budgetedCost && w.costToDate > w.budgetedCost ? 'warn' : ''}">${fmtMoney(w.costToDate)}</div>
+          <div style="font-size:11px;color:var(--text-dim);">of ${fmtMoney(w.budgetedCost)} budgeted</div>
+        </div>
+        <div class="stat"><div class="label">% Complete</div><div class="value">${Math.round(w.pctComplete * 100)}%</div>
+          <div style="font-size:11px;color:var(--text-dim);">cost-based</div>
+        </div>
+        <div class="stat"><div class="label">Billed to Date</div><div class="value">${fmtMoney(w.billedToDate)}</div>
+          ${jobRetainageHeld(jobId) ? `<div style="font-size:11px;color:var(--text-dim);">${fmtMoney(jobRetainageHeld(jobId))} retainage held</div>` : ''}
+        </div>
+        <div class="stat"><div class="label">${w.overUnder >= 0 ? 'Overbilled' : 'Underbilled'}</div>
+          <div class="value ${w.overUnder < 0 ? 'warn' : 'ok'}">${fmtMoney(Math.abs(w.overUnder))}</div>
+          <div style="font-size:11px;color:var(--text-dim);">earned ${fmtMoney(w.earned)}</div>
+        </div>
+        <div class="stat"><div class="label">Projected Margin</div><div class="value ${w.projectedMargin < 0 ? 'warn' : 'ok'}">${fmtMoney(w.projectedMargin)}</div></div>
+      </div>
+
+      <div class="toolbar"><h2>Phases &amp; Budgets</h2><button class="primary" data-action="new-phase">+ Add Phase</button></div>
+      ${phases.length ? `<table><thead><tr>
+          <th>Phase</th>${COST_TYPES.map(ct => `<th class="num">${ct.label}</th>`).join('')}
+          <th class="num">Budget</th><th class="num">Actual</th><th class="num">Used</th><th></th>
+        </tr></thead><tbody>${phaseRows}
+        ${unphasedCost ? `<tr><td colspan="${COST_TYPES.length + 1}" style="color:var(--text-dim);font-style:italic;">Unassigned to a phase</td>
+          <td class="num">—</td><td class="num">${fmtMoney(unphasedCost)}</td><td class="num">—</td><td></td></tr>` : ''}
+        </tbody></table>`
+        : `<div class="empty">No phases yet — the job uses its flat cost budget of ${fmtMoney(job.budget || 0)}. Add phases to track labor, material, equipment, and sub costs separately.</div>`}
+
+      <div class="toolbar" style="margin-top:24px;"><h2>Change Orders</h2><button class="primary" data-action="new-co" data-id="${job.id}">+ Change Order</button></div>
+      ${cos.length ? `<table><thead><tr><th>#</th><th>Description</th><th>Date</th><th>Status</th><th class="num">Amount</th><th></th></tr></thead><tbody>
+        ${cos.map(c => `<tr>
+          <td>${escapeHtml(c.number)}</td>
+          <td>${escapeHtml(c.description || '')}</td>
+          <td>${fmtDate(c.date)}</td>
+          <td><span class="badge ${c.status === 'approved' ? 'active' : c.status === 'declined' ? 'over' : 'pending'}">${escapeHtml(c.status)}</span></td>
+          <td class="num">${fmtMoney(c.amount)}</td>
+          <td>
+            ${c.status === 'pending' ? `<button class="ghost" data-action="approve-co" data-id="${c.id}">Approve</button>` : ''}
+            <button class="ghost danger" data-action="delete-co" data-id="${c.id}">×</button>
+          </td>
+        </tr>`).join('')}
+      </tbody></table>` : '<div class="empty">No change orders.</div>'}
+
+      <div class="toolbar" style="margin-top:24px;"><h2>Invoices</h2></div>
+      ${jobInvoices.length ? `<table><thead><tr><th>#</th><th>Date</th><th>Status</th><th class="num">Gross</th><th class="num">Retainage</th><th class="num">Net</th></tr></thead><tbody>
+        ${jobInvoices.map(i => `<tr>
+          <td><a class="job-link" data-action="edit-invoice" data-id="${i.id}">${escapeHtml(i.number)}</a></td>
+          <td>${fmtDate(i.date)}</td>
+          <td><span class="badge ${invoiceStatus(i)}">${invoiceStatus(i)}</span></td>
+          <td class="num">${fmtMoney(lineItemsTotal(i.lineItems))}</td>
+          <td class="num">${i.retainagePercent ? fmtMoney(lineItemsTotal(i.lineItems) * i.retainagePercent / 100) : '—'}</td>
+          <td class="num">${fmtMoney(invoiceTotal(i))}</td>
+        </tr>`).join('')}
+      </tbody></table>` : '<div class="empty">No invoices for this job.</div>'}
+    `;
+  }
+
+  function phaseFormModal(jobId, phase) {
+    const job = db.jobs.find(j => j.id === jobId);
+    const isEdit = !!phase;
+    phase = phase || { id: uid(), budget: {} };
+    openModal(`
+      <h3>${isEdit ? 'Edit Phase' : 'New Phase'}</h3>
+      <div class="field"><label>Phase Name</label><input id="f-name" value="${escapeHtml(phase.name || '')}" placeholder="e.g. Demo, Rough-in, Finish"></div>
+      ${COST_TYPES.map(ct => `<div class="field"><label>${ct.label} Budget ($)</label>
+        <input id="f-b-${ct.key}" type="number" step="0.01" value="${phase.budget?.[ct.key] || ''}"></div>`).join('')}
+      <div class="modal-actions">
+        <button class="secondary" data-action="close-modal">Cancel</button>
+        <button class="primary" id="save-phase">Save Phase</button>
+      </div>
+    `);
+    document.getElementById('save-phase').addEventListener('click', () => {
+      phase.name = document.getElementById('f-name').value.trim() || 'Untitled phase';
+      phase.budget = {};
+      COST_TYPES.forEach(ct => {
+        phase.budget[ct.key] = parseFloat(document.getElementById('f-b-' + ct.key).value) || 0;
+      });
+      if (!Array.isArray(job.phases)) job.phases = [];
+      if (!isEdit) job.phases.push(phase);
+      save(); closeModal(); renderAll();
+    });
+  }
+
+  function changeOrderFormModal(jobId) {
+    const job = db.jobs.find(j => j.id === jobId);
+    const count = db.changeOrders.filter(c => c.jobId === jobId).length;
+    const co = { id: uid(), jobId, number: 'CO-' + String(count + 1).padStart(3, '0'), date: todayStr(), status: 'pending' };
+    openModal(`
+      <h3>New Change Order — ${escapeHtml(job.name)}</h3>
+      <div class="field"><label>Number</label><input id="f-number" value="${escapeHtml(co.number)}"></div>
+      <div class="field"><label>Description</label><textarea id="f-desc" placeholder="e.g. Add two additional footings per client request"></textarea></div>
+      <div class="field"><label>Amount ($) <span style="font-weight:400;color:var(--text-dim);">negative for a credit</span></label><input id="f-amount" type="number" step="0.01"></div>
+      <div class="field"><label>Date</label><input id="f-date" type="date" value="${co.date}"></div>
+      <div class="modal-actions">
+        <button class="secondary" data-action="close-modal">Cancel</button>
+        <button class="primary" id="save-co">Save Change Order</button>
+      </div>
+    `);
+    document.getElementById('save-co').addEventListener('click', () => {
+      co.number = document.getElementById('f-number').value.trim();
+      co.description = document.getElementById('f-desc').value.trim();
+      co.amount = parseFloat(document.getElementById('f-amount').value) || 0;
+      co.date = document.getElementById('f-date').value;
+      db.changeOrders.push(co);
+      save(); closeModal(); renderAll();
+    });
+  }
+
+  // Builds a draft invoice billing the gap between what's been earned
+  // (contract × % complete) and what's already been billed.
+  function progressInvoiceModal(jobId) {
+    const job = db.jobs.find(j => j.id === jobId);
+    const w = jobWip(jobId);
+    const suggested = Math.max(0, w.earned - w.billedToDate);
+    openModal(`
+      <h3>Progress Invoice — ${escapeHtml(job.name)}</h3>
+      <div style="font-size:13px;color:var(--text-dim);margin-bottom:12px;line-height:1.6;">
+        Contract ${fmtMoney(w.contract)} × ${Math.round(w.pctComplete * 100)}% complete = ${fmtMoney(w.earned)} earned.<br>
+        Already billed ${fmtMoney(w.billedToDate)}.
+      </div>
+      <div class="field"><label>Amount to Bill ($)</label><input id="f-amount" type="number" step="0.01" value="${suggested.toFixed(2)}"></div>
+      <div class="field"><label>Retainage (%)</label><input id="f-retainage" type="number" step="0.01" value="10"></div>
+      <div class="field"><label>Description</label><input id="f-desc" value="Progress billing — ${Math.round(w.pctComplete * 100)}% complete"></div>
+      <div class="field"><label>Due Date</label><input id="f-due" type="date"></div>
+      <div class="modal-actions">
+        <button class="secondary" data-action="close-modal">Cancel</button>
+        <button class="primary" id="save-pi">Create Draft Invoice</button>
+      </div>
+    `);
+    document.getElementById('save-pi').addEventListener('click', () => {
+      const amount = parseFloat(document.getElementById('f-amount').value) || 0;
+      db.invoices.push({
+        id: uid(),
+        number: nextInvoiceNumber(),
+        jobId,
+        date: todayStr(),
+        dueDate: document.getElementById('f-due').value,
+        status: 'draft',
+        retainagePercent: parseFloat(document.getElementById('f-retainage').value) || 0,
+        lineItems: [{ desc: document.getElementById('f-desc').value.trim(), qty: 1, rate: amount }]
+      });
+      save(); closeModal(); renderAll();
+    });
   }
 
   function jobFormModal(job) {
@@ -547,7 +820,8 @@
           <button type="button" class="ghost" id="use-my-location">Use My Location</button>
         </div>
       </div>
-      <div class="field"><label>Budget ($)</label><input id="f-budget" type="number" step="0.01" value="${job.budget || ''}"></div>
+      <div class="field"><label>Contract Value ($) <span style="font-weight:400;color:var(--text-dim);">what the client pays</span></label><input id="f-contract" type="number" step="0.01" value="${job.contractValue || ''}"></div>
+      <div class="field"><label>Cost Budget ($) <span style="font-weight:400;color:var(--text-dim);">what it costs you — ignored once phases exist</span></label><input id="f-budget" type="number" step="0.01" value="${job.budget || ''}"></div>
       <div class="field"><label>Notes</label><textarea id="f-notes">${escapeHtml(job.notes || '')}</textarea></div>
       <div class="modal-actions">
         <button class="secondary" data-action="close-modal">Cancel</button>
@@ -578,7 +852,9 @@
       job.lat = isNaN(latVal) ? null : latVal;
       job.lng = isNaN(lngVal) ? null : lngVal;
       job.budget = parseFloat(document.getElementById('f-budget').value) || 0;
+      job.contractValue = parseFloat(document.getElementById('f-contract').value) || 0;
       job.notes = document.getElementById('f-notes').value.trim();
+      if (!Array.isArray(job.phases)) job.phases = [];
       if (!isEdit) db.jobs.push(job);
       save(); closeModal(); renderAll();
     });
@@ -717,6 +993,7 @@
           <option value="paid" ${invoice.status === 'paid' ? 'selected' : ''}>Paid</option>
         </select>
       </div>
+      <div class="field"><label>Retainage (%)</label><input id="f-retainage" type="number" step="0.01" value="${invoice.retainagePercent || 0}"></div>
       <div class="field"><label>Line Items</label>
         <div class="line-items" id="line-items">${lineItemsHtml()}</div>
         <button class="ghost" data-action="add-line">+ Add Line</button>
@@ -765,6 +1042,7 @@
       invoice.date = document.getElementById('f-date').value;
       invoice.dueDate = document.getElementById('f-due').value;
       invoice.status = document.getElementById('f-status').value;
+      invoice.retainagePercent = parseFloat(document.getElementById('f-retainage').value) || 0;
       if (!isEdit) db.invoices.push(invoice);
       save(); closeModal(); renderAll();
     });
@@ -790,7 +1068,10 @@
       <p><strong>Job:</strong> ${escapeHtml(job ? job.name : 'N/A')}</p>
       <table><thead><tr><th>Description</th><th style="text-align:right">Qty</th><th style="text-align:right">Rate</th><th style="text-align:right">Amount</th></tr></thead>
       <tbody>${rows}</tbody></table>
-      <div class="total">Total: ${fmtMoney(lineItemsTotal(inv.lineItems))}</div>
+      ${inv.retainagePercent ? `
+        <div class="total" style="font-size:14px;font-weight:400;">Subtotal: ${fmtMoney(lineItemsTotal(inv.lineItems))}</div>
+        <div class="total" style="font-size:14px;font-weight:400;">Less ${inv.retainagePercent}% retainage: −${fmtMoney(lineItemsTotal(inv.lineItems) * inv.retainagePercent / 100)}</div>` : ''}
+      <div class="total">Amount Due: ${fmtMoney(invoiceTotal(inv))}</div>
       </body></html>
     `);
     win.document.close();
@@ -817,6 +1098,18 @@
     `;
   }
 
+  // Repoints a phase <select> at whichever job is currently chosen.
+  function populatePhaseSelect(jobSelectId, phaseSelectId, selectedPhaseId) {
+    const jobSel = document.getElementById(jobSelectId);
+    const phaseSel = document.getElementById(phaseSelectId);
+    if (!jobSel || !phaseSel) return;
+    const phases = jobPhases(jobSel.value);
+    phaseSel.innerHTML = '<option value="">— no phase —</option>' +
+      phases.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+    phaseSel.value = selectedPhaseId || '';
+    phaseSel.disabled = !phases.length;
+  }
+
   function billFormModal(bill) {
     const isEdit = !!bill;
     bill = bill || { id: uid(), date: todayStr(), paid: false };
@@ -825,6 +1118,7 @@
     openModal(`
       <h3>${isEdit ? 'Edit Bill' : 'New Bill'}</h3>
       <div class="field"><label>Job</label><select id="f-job"><option value="">— none —</option>${jobOptions}</select></div>
+      <div class="field"><label>Phase</label><select id="f-phase"></select></div>
       <div class="field"><label>Vendor</label><select id="f-vendor"><option value="">— none —</option>${vendorOptions}</select></div>
       <div class="field"><label>Description</label><input id="f-desc" value="${escapeHtml(bill.description || '')}" placeholder="e.g. Lumber, permit fee, sub labor"></div>
       <div class="field"><label>Amount ($)</label><input id="f-amount" type="number" step="0.01" value="${bill.amount || ''}"></div>
@@ -837,8 +1131,11 @@
     `);
     document.getElementById('f-job').value = bill.jobId || '';
     document.getElementById('f-vendor').value = bill.vendorId || '';
+    populatePhaseSelect('f-job', 'f-phase', bill.phaseId);
+    document.getElementById('f-job').addEventListener('change', () => populatePhaseSelect('f-job', 'f-phase', null));
     document.getElementById('save-bill').addEventListener('click', () => {
       bill.jobId = document.getElementById('f-job').value || null;
+      bill.phaseId = document.getElementById('f-phase').value || null;
       bill.vendorId = document.getElementById('f-vendor').value || null;
       bill.description = document.getElementById('f-desc').value.trim();
       bill.amount = parseFloat(document.getElementById('f-amount').value) || 0;
@@ -878,6 +1175,7 @@
       <h3>Log Time</h3>
       <div class="field"><label>Worker Name</label><input id="f-worker" placeholder="e.g. Mike R."></div>
       <div class="field"><label>Job</label><select id="f-job">${jobOptions}</select></div>
+      <div class="field"><label>Phase</label><select id="f-phase"></select></div>
       <div class="field"><label>Date</label><input id="f-date" type="date" value="${entry.date}"></div>
       <div class="field"><label>Hours</label><input id="f-hours" type="number" step="0.25" value="8"></div>
       <div class="field"><label>Hourly Rate ($)</label><input id="f-rate" type="number" step="0.01" value="0"></div>
@@ -886,9 +1184,12 @@
         <button class="primary" id="save-time">Save Entry</button>
       </div>
     `);
+    populatePhaseSelect('f-job', 'f-phase', null);
+    document.getElementById('f-job').addEventListener('change', () => populatePhaseSelect('f-job', 'f-phase', null));
     document.getElementById('save-time').addEventListener('click', () => {
       entry.worker = document.getElementById('f-worker').value.trim() || 'Unnamed';
       entry.jobId = document.getElementById('f-job').value;
+      entry.phaseId = document.getElementById('f-phase').value || null;
       entry.date = document.getElementById('f-date').value;
       entry.hours = parseFloat(document.getElementById('f-hours').value) || 0;
       entry.rate = parseFloat(document.getElementById('f-rate').value) || 0;
@@ -937,6 +1238,159 @@
       db.tasks.push(task);
       save(); closeModal(); renderAll();
     });
+  }
+
+  // ---------- Estimates ----------
+  function estimateSell(est) {
+    const cost = lineItemsTotal(est.lineItems);
+    return cost * (1 + Number(est.markupPercent || 0) / 100);
+  }
+
+  function renderEstimates() {
+    const el = document.getElementById('tab-estimates');
+    el.innerHTML = `
+      <div class="toolbar"><h2>Estimates</h2><button class="primary" data-action="new-estimate">+ New Estimate</button></div>
+      ${db.estimates.length ? `<table><thead><tr><th>#</th><th>Name</th><th>Client</th><th>Date</th><th>Status</th><th class="num">Cost</th><th class="num">Price</th><th></th></tr></thead><tbody>
+        ${db.estimates.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(e => `<tr>
+          <td>${escapeHtml(e.number)}</td>
+          <td>${escapeHtml(e.name || '')}</td>
+          <td>${escapeHtml(clientName(e.clientId))}</td>
+          <td>${fmtDate(e.date)}</td>
+          <td><span class="badge ${e.status === 'accepted' ? 'active' : e.status === 'declined' ? 'over' : 'pending'}">${escapeHtml(e.status)}</span></td>
+          <td class="num">${fmtMoney(lineItemsTotal(e.lineItems))}</td>
+          <td class="num"><strong>${fmtMoney(estimateSell(e))}</strong></td>
+          <td>
+            <button class="ghost" data-action="edit-estimate" data-id="${e.id}">Edit</button>
+            ${e.status !== 'accepted' ? `<button class="ghost" data-action="accept-estimate" data-id="${e.id}">Accept → Job</button>` : ''}
+            <button class="ghost danger" data-action="delete-estimate" data-id="${e.id}">×</button>
+          </td>
+        </tr>`).join('')}
+      </tbody></table>` : '<div class="empty">No estimates yet. Build one here, then convert it to a job when the client accepts.</div>'}
+    `;
+  }
+
+  function estimateFormModal(est) {
+    const isEdit = !!est;
+    est = est || {
+      id: uid(),
+      number: 'EST-' + String(db.estimates.length + 1).padStart(4, '0'),
+      date: todayStr(), status: 'draft', markupPercent: 20,
+      lineItems: [{ desc: '', qty: 1, rate: 0 }]
+    };
+    const clientOptions = db.clients.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+
+    function lineItemsHtml() {
+      return est.lineItems.map((li, idx) => `
+        <div class="line-item-row" data-idx="${idx}">
+          <input class="li-desc" placeholder="Cost item" value="${escapeHtml(li.desc)}">
+          <input class="li-qty" type="number" step="0.01" placeholder="Qty" value="${li.qty}">
+          <input class="li-rate" type="number" step="0.01" placeholder="Cost" value="${li.rate}">
+          <button class="ghost danger" data-action="remove-line" data-idx="${idx}">×</button>
+        </div>`).join('');
+    }
+
+    function totalsHtml() {
+      const cost = lineItemsTotal(est.lineItems);
+      const sell = estimateSell(est);
+      return `Cost ${fmtMoney(cost)} → Price ${fmtMoney(sell)} <span style="font-weight:400;color:var(--text-dim);">(margin ${fmtMoney(sell - cost)})</span>`;
+    }
+
+    openModal(`
+      <h3>${isEdit ? 'Edit Estimate' : 'New Estimate'}</h3>
+      <div class="field"><label>Number</label><input id="f-number" value="${escapeHtml(est.number)}"></div>
+      <div class="field"><label>Job Name</label><input id="f-name" value="${escapeHtml(est.name || '')}" placeholder="e.g. Smith Deck Rebuild"></div>
+      <div class="field"><label>Client</label><select id="f-client"><option value="">— none —</option>${clientOptions}</select></div>
+      <div class="field"><label>Date</label><input id="f-date" type="date" value="${est.date}"></div>
+      <div class="field"><label>Status</label>
+        <select id="f-status">
+          <option value="draft" ${est.status === 'draft' ? 'selected' : ''}>Draft</option>
+          <option value="sent" ${est.status === 'sent' ? 'selected' : ''}>Sent</option>
+          <option value="accepted" ${est.status === 'accepted' ? 'selected' : ''}>Accepted</option>
+          <option value="declined" ${est.status === 'declined' ? 'selected' : ''}>Declined</option>
+        </select>
+      </div>
+      <div class="field"><label>Your Costs</label>
+        <div class="line-items" id="line-items">${lineItemsHtml()}</div>
+        <button class="ghost" data-action="add-line">+ Add Line</button>
+      </div>
+      <div class="field"><label>Markup (%)</label><input id="f-markup" type="number" step="0.01" value="${est.markupPercent}"></div>
+      <div class="row-total" id="est-total">${totalsHtml()}</div>
+      <div class="modal-actions">
+        <button class="secondary" data-action="close-modal">Cancel</button>
+        <button class="primary" id="save-estimate">Save Estimate</button>
+      </div>
+    `);
+    document.getElementById('f-client').value = est.clientId || '';
+
+    function syncFromDom() {
+      const rows = document.querySelectorAll('#line-items .line-item-row');
+      est.lineItems = Array.from(rows).map(row => ({
+        desc: row.querySelector('.li-desc').value,
+        qty: parseFloat(row.querySelector('.li-qty').value) || 0,
+        rate: parseFloat(row.querySelector('.li-rate').value) || 0
+      }));
+      est.markupPercent = parseFloat(document.getElementById('f-markup').value) || 0;
+      document.getElementById('est-total').innerHTML = totalsHtml();
+    }
+    function rerenderLines() {
+      document.getElementById('line-items').innerHTML = lineItemsHtml();
+      document.getElementById('est-total').innerHTML = totalsHtml();
+    }
+
+    document.getElementById('line-items').addEventListener('input', syncFromDom);
+    document.getElementById('f-markup').addEventListener('input', syncFromDom);
+    document.getElementById('line-items').addEventListener('click', e => {
+      const btn = e.target.closest('[data-action="remove-line"]');
+      if (!btn) return;
+      syncFromDom();
+      est.lineItems.splice(parseInt(btn.dataset.idx, 10), 1);
+      rerenderLines();
+    });
+    document.querySelector('#modal [data-action="add-line"]').addEventListener('click', () => {
+      syncFromDom();
+      est.lineItems.push({ desc: '', qty: 1, rate: 0 });
+      rerenderLines();
+    });
+    document.getElementById('save-estimate').addEventListener('click', () => {
+      syncFromDom();
+      est.number = document.getElementById('f-number').value.trim();
+      est.name = document.getElementById('f-name').value.trim();
+      est.clientId = document.getElementById('f-client').value || null;
+      est.date = document.getElementById('f-date').value;
+      est.status = document.getElementById('f-status').value;
+      if (!isEdit) db.estimates.push(est);
+      save(); closeModal(); renderAll();
+    });
+  }
+
+  // Converts an accepted estimate into a live job: price becomes the contract
+  // value, and each estimate line becomes a phase seeded with its cost.
+  function acceptEstimate(id) {
+    const est = db.estimates.find(e => e.id === id);
+    if (!est) return;
+    if (!confirm('Create a job from this estimate? Each cost line becomes a phase.')) return;
+    est.status = 'accepted';
+    const job = {
+      id: uid(),
+      name: est.name || est.number,
+      type: 'contract',
+      clientId: est.clientId,
+      status: 'active',
+      createdAt: todayStr(),
+      contractValue: estimateSell(est),
+      budget: lineItemsTotal(est.lineItems),
+      estimateId: est.id,
+      phases: est.lineItems.filter(li => li.desc.trim()).map(li => ({
+        id: uid(),
+        name: li.desc,
+        budget: { labor: 0, material: Number(li.qty || 0) * Number(li.rate || 0), equipment: 0, sub: 0 }
+      })),
+      notes: ''
+    };
+    db.jobs.push(job);
+    save();
+    currentJobId = job.id;
+    setTab('jobs');
   }
 
   // ---------- Photos ----------
@@ -1055,32 +1509,46 @@
   // ---------- Reports ----------
   function renderReports() {
     const el = document.getElementById('tab-reports');
-    const rows = db.jobs.map(j => {
-      const cost = jobActualCost(j.id);
-      const invoiced = jobInvoicedTotal(j.id);
-      const margin = invoiced - cost;
-      return { job: j, cost, invoiced, margin };
-    }).sort((a, b) => b.margin - a.margin);
+    const rows = db.jobs.map(j => ({ job: j, w: jobWip(j.id) }));
+    const active = rows.filter(r => r.job.status === 'active');
 
-    const totalInvoiced = rows.reduce((s, r) => s + r.invoiced, 0);
-    const totalCost = rows.reduce((s, r) => s + r.cost, 0);
+    const totalContract = rows.reduce((s, r) => s + r.w.contract, 0);
+    const totalCost = rows.reduce((s, r) => s + r.w.costToDate, 0);
+    const totalBilled = rows.reduce((s, r) => s + r.w.billedToDate, 0);
+    const totalUnder = active.reduce((s, r) => s + Math.min(0, r.w.overUnder), 0);
+    const losing = rows.filter(r => r.w.contract > 0 && r.w.projectedMargin < 0);
 
     el.innerHTML = `
-      <div class="toolbar"><h2>Job Profitability</h2></div>
+      <div class="toolbar"><h2>Work in Progress</h2></div>
       <div class="cards">
-        <div class="stat"><div class="label">Total Invoiced</div><div class="value">${fmtMoney(totalInvoiced)}</div></div>
-        <div class="stat"><div class="label">Total Cost</div><div class="value">${fmtMoney(totalCost)}</div></div>
-        <div class="stat"><div class="label">Net Margin</div><div class="value ${(totalInvoiced-totalCost) < 0 ? 'warn' : 'ok'}">${fmtMoney(totalInvoiced-totalCost)}</div></div>
+        <div class="stat"><div class="label">Contract Value</div><div class="value">${fmtMoney(totalContract)}</div></div>
+        <div class="stat"><div class="label">Cost to Date</div><div class="value">${fmtMoney(totalCost)}</div></div>
+        <div class="stat"><div class="label">Billed to Date</div><div class="value">${fmtMoney(totalBilled)}</div></div>
+        <div class="stat"><div class="label">Underbilled (active)</div><div class="value ${totalUnder < 0 ? 'warn' : 'ok'}">${fmtMoney(Math.abs(totalUnder))}</div></div>
+        <div class="stat"><div class="label">Jobs Projecting a Loss</div><div class="value ${losing.length ? 'warn' : 'ok'}">${losing.length}</div></div>
       </div>
-      ${rows.length ? `<table><thead><tr><th>Job</th><th>Status</th><th class="num">Invoiced</th><th class="num">Cost</th><th class="num">Margin</th></tr></thead><tbody>
-        ${rows.map(r => `<tr>
-          <td>${escapeHtml(r.job.name)}</td>
+
+      ${rows.length ? `<table><thead><tr>
+          <th>Job</th><th>Status</th><th class="num">Contract</th><th class="num">Cost</th>
+          <th class="num">% Compl.</th><th class="num">Earned</th><th class="num">Billed</th>
+          <th class="num">Over/(Under)</th><th class="num">Proj. Margin</th>
+        </tr></thead><tbody>
+        ${rows.sort((a, b) => a.w.overUnder - b.w.overUnder).map(r => `<tr>
+          <td><a class="job-link" data-action="open-job" data-id="${r.job.id}">${escapeHtml(r.job.name)}</a></td>
           <td><span class="badge ${r.job.status}">${escapeHtml(r.job.status)}</span></td>
-          <td class="num">${fmtMoney(r.invoiced)}</td>
-          <td class="num">${fmtMoney(r.cost)}</td>
-          <td class="num"><span class="badge ${r.margin < 0 ? 'over' : 'active'}">${fmtMoney(r.margin)}</span></td>
+          <td class="num">${fmtMoney(r.w.contract)}</td>
+          <td class="num">${fmtMoney(r.w.costToDate)}</td>
+          <td class="num">${r.w.budgetedCost ? Math.round(r.w.pctComplete * 100) + '%' : '—'}</td>
+          <td class="num">${fmtMoney(r.w.earned)}</td>
+          <td class="num">${fmtMoney(r.w.billedToDate)}</td>
+          <td class="num"><span class="badge ${r.w.overUnder < -0.005 ? 'over' : ''}">${r.w.overUnder < 0 ? '(' + fmtMoney(Math.abs(r.w.overUnder)) + ')' : fmtMoney(r.w.overUnder)}</span></td>
+          <td class="num"><span class="badge ${r.w.projectedMargin < 0 ? 'over' : 'active'}">${fmtMoney(r.w.projectedMargin)}</span></td>
         </tr>`).join('')}
-      </tbody></table>` : '<div class="empty">No jobs yet.</div>'}
+      </tbody></table>
+      <div style="font-size:12px;color:var(--text-dim);margin-top:10px;line-height:1.6;">
+        % complete is cost-based (cost to date ÷ budgeted cost). Earned = contract × % complete.
+        A job billed less than it has earned is <strong>underbilled</strong> — that is revenue you have worked for but not yet invoiced.
+      </div>` : '<div class="empty">No jobs yet.</div>'}
     `;
   }
 
@@ -1108,11 +1576,46 @@
 
       case 'new-job': jobFormModal(); break;
       case 'edit-job': jobFormModal(db.jobs.find(j => j.id === id)); break;
+      case 'open-job': currentJobId = id; setTab('jobs'); break;
+      case 'back-to-jobs': currentJobId = null; renderJobs(); break;
       case 'delete-job':
         if (confirm('Delete this job? Related bills, invoices, time entries, and tasks will remain but be unlinked.')) {
           db.jobs = db.jobs.filter(j => j.id !== id);
+          db.changeOrders = db.changeOrders.filter(c => c.jobId !== id);
+          if (currentJobId === id) currentJobId = null;
           save(); renderAll();
         }
+        break;
+
+      case 'new-phase': phaseFormModal(currentJobId); break;
+      case 'edit-phase': phaseFormModal(currentJobId, jobPhases(currentJobId).find(p => p.id === id)); break;
+      case 'delete-phase': {
+        if (!confirm('Delete this phase? Costs assigned to it become unassigned.')) break;
+        const j = db.jobs.find(x => x.id === currentJobId);
+        j.phases = j.phases.filter(p => p.id !== id);
+        db.bills.forEach(b => { if (b.phaseId === id) b.phaseId = null; });
+        db.timeEntries.forEach(t => { if (t.phaseId === id) t.phaseId = null; });
+        save(); renderAll();
+        break;
+      }
+
+      case 'new-co': changeOrderFormModal(id); break;
+      case 'approve-co': {
+        const c = db.changeOrders.find(x => x.id === id);
+        if (c) { c.status = 'approved'; save(); renderAll(); }
+        break;
+      }
+      case 'delete-co':
+        if (confirm('Delete this change order?')) { db.changeOrders = db.changeOrders.filter(c => c.id !== id); save(); renderAll(); }
+        break;
+
+      case 'progress-invoice': progressInvoiceModal(id); break;
+
+      case 'new-estimate': estimateFormModal(); break;
+      case 'edit-estimate': estimateFormModal(db.estimates.find(e => e.id === id)); break;
+      case 'accept-estimate': acceptEstimate(id); break;
+      case 'delete-estimate':
+        if (confirm('Delete this estimate?')) { db.estimates = db.estimates.filter(e => e.id !== id); save(); renderAll(); }
         break;
 
       case 'new-client': clientFormModal(); break;
