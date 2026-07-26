@@ -131,6 +131,7 @@
   }
   button.ghost:hover { background: var(--bg); }
   button.ghost.danger { color: var(--danger); border-color: #edd; }
+  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   table {
     width: 100%;
     border-collapse: collapse;
@@ -589,6 +590,20 @@
     if (name === 'tasks') renderTasks();
     if (name === 'photos') renderPhotos();
     if (name === 'reports') renderReports();
+    wrapTables(document.getElementById('tab-' + name));
+  }
+
+  // Wide tables get their own scroll container so the page body never
+  // scrolls sideways on a phone.
+  function wrapTables(root) {
+    if (!root) return;
+    root.querySelectorAll('table').forEach(t => {
+      if (t.parentElement && t.parentElement.classList.contains('table-wrap')) return;
+      const wrap = document.createElement('div');
+      wrap.className = 'table-wrap';
+      t.parentNode.insertBefore(wrap, t);
+      wrap.appendChild(t);
+    });
   }
 
   function renderAll() {
