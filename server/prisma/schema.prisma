@@ -1,0 +1,100 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ChannelType {
+  EMAIL
+  SMS
+}
+
+enum Direction {
+  INBOUND
+  OUTBOUND
+}
+
+model Client {
+  id            String              @id @default(cuid())
+  name          String
+  company       String?
+  notes         String?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  emailAddresses ClientEmailAddress[]
+  phoneNumbers  ClientPhoneNumber[]
+  communications Communication[]
+}
+
+model ClientEmailAddress {
+  id       String @id @default(cuid())
+  email    String @unique
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+// Not used for scanning yet (SMS ingestion isn't wired up), but the shape
+// exists now so an SMS source can attach to the same Client model later
+// without a schema migration touching the email path.
+model ClientPhoneNumber {
+  id       String @id @default(cuid())
+  phone    String @unique
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model EmailAccount {
+  id                String   @id @default(cuid())
+  label             String
+  host              String
+  port              Int
+  secure            Boolean  @default(true)
+  username          String
+  encryptedPassword String
+  active            Boolean  @default(true)
+  lastSyncedAt      DateTime?
+  lastSyncError     String?
+  createdAt         DateTime @default(now())
+  communications    Communication[]
+  folders           FolderSyncState[]
+}
+
+// Tracks sync progress per IMAP folder (INBOX, and the account's Sent
+// folder when the server advertises one via SPECIAL-USE) so re-syncs
+// only fetch messages newer than the last UID we've already stored.
+model FolderSyncState {
+  id             String       @id @default(cuid())
+  emailAccountId String
+  emailAccount   EmailAccount @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
+  folderPath     String
+  uidValidity    BigInt
+  lastSeenUid    Int          @default(0)
+
+  @@unique([emailAccountId, folderPath])
+}
+
+model Communication {
+  id             String       @id @default(cuid())
+  channel        ChannelType  @default(EMAIL)
+  direction      Direction
+  emailAccountId String?
+  emailAccount   EmailAccount? @relation(fields: [emailAccountId], references: [id], onDelete: SetNull)
+  clientId       String?
+  client         Client?      @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  fromAddress    String
+  toAddresses    String
+  subject        String?
+  snippet        String?
+  bodyText       String?
+  externalId     String       // Message-ID header (email) — used for de-duplication
+  occurredAt     DateTime
+  handled        Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+
+  @@unique([emailAccountId, externalId])
+  @@index([clientId])
+  @@index([occurredAt])
+}
