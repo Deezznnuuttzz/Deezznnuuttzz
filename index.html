@@ -74,6 +74,28 @@
     border-radius: 10px;
     padding: 14px 16px;
   }
+  button.stat {
+    font-family: inherit;
+    text-align: left;
+    width: 100%;
+    cursor: pointer;
+    position: relative;
+    padding-right: 30px;
+    transition: border-color 0.12s, box-shadow 0.12s, transform 0.12s;
+  }
+  button.stat:hover { border-color: var(--accent); box-shadow: 0 2px 8px rgba(0,0,0,0.07); transform: translateY(-1px); }
+  button.stat:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button.stat::after {
+    content: '›';
+    position: absolute;
+    right: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-dim);
+    font-size: 20px;
+    line-height: 1;
+  }
+  button.stat:hover::after { color: var(--accent); }
   .stat .label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.4px; }
   .stat .value { font-size: 22px; font-weight: 700; margin-top: 4px; }
   .stat .value.warn { color: var(--warn); }
@@ -138,6 +160,28 @@
   .badge.overdue, .badge.over { background: #fbe9e5; color: var(--danger); }
   .badge.sent { background: #fdf2e0; color: var(--warn); }
   .empty { color: var(--text-dim); font-size: 13.5px; padding: 20px; text-align: center; }
+  .filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--accent-dim);
+    color: var(--accent);
+    border-radius: 20px;
+    padding: 4px 6px 4px 12px;
+    font-size: 12.5px;
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+  .filter-chip button {
+    border: none;
+    background: rgba(0,0,0,0.08);
+    color: inherit;
+    border-radius: 50%;
+    width: 18px; height: 18px;
+    line-height: 1;
+    cursor: pointer;
+    font-size: 13px;
+  }
   .modal-backdrop {
     display: none;
     position: fixed; inset: 0;
@@ -494,10 +538,36 @@
     };
   }
 
+  // ---------- list filters (set by dashboard tiles, cleared by the user) ----------
+  const filters = { jobs: 'all', invoices: 'all', time: 'all', tasks: 'all', estimates: 'all' };
+
+  const FILTER_LABELS = {
+    jobs: { active: 'Active jobs', 'pending-co': 'Has pending change orders' },
+    invoices: { overdue: 'Overdue', unpaid: 'Unpaid' },
+    time: { pending: 'Pending approval' },
+    tasks: { open: 'Open', overdue: 'Overdue' },
+    estimates: { open: 'Open (draft or sent)' }
+  };
+
+  function filterChip(kind) {
+    const val = filters[kind];
+    if (!val || val === 'all') return '';
+    const label = FILTER_LABELS[kind]?.[val] || val;
+    return `<div class="filter-chip">${escapeHtml(label)}
+      <button data-action="clear-filter" data-kind="${kind}" title="Clear filter">×</button></div>`;
+  }
+
   // ---------- tabs ----------
   const tabButtons = document.querySelectorAll('#tabs button');
   tabButtons.forEach(btn => {
-    btn.addEventListener('click', () => setTab(btn.dataset.tab));
+    btn.addEventListener('click', () => {
+      // Navigating by the tab bar means "show me everything" — only the
+      // dashboard tiles apply a filter.
+      const tab = btn.dataset.tab;
+      if (Object.prototype.hasOwnProperty.call(filters, tab)) filters[tab] = 'all';
+      if (tab === 'jobs') currentJobId = null;
+      setTab(tab);
+    });
   });
 
   function setTab(name) {
@@ -539,20 +609,34 @@
     const openTasks = db.tasks.filter(t => !t.done).length;
     const overdueTasks = db.tasks.filter(t => !t.done && t.dueDate && t.dueDate < todayStr()).length;
 
+    // Each tile is a navigation target: tapping it opens the tab it
+    // summarizes, narrowed to the records it counted.
+    const tiles = [
+      { label: 'Active Jobs', value: activeJobs, tab: 'jobs', filter: 'active' },
+      { label: 'Underbilled', value: fmtMoney(unbilled), tone: unbilled > 0 ? 'warn' : 'ok',
+        sub: 'ready to invoice', tab: 'reports' },
+      { label: 'Overdue Invoices', value: overdueInvoices, tone: overdueInvoices > 0 ? 'warn' : 'ok',
+        tab: 'invoices', filter: 'overdue' },
+      { label: 'Open Estimates', value: openEstimates, tab: 'estimates', filter: 'open' },
+      { label: 'Change Orders Pending', value: pendingCOs, tone: pendingCOs > 0 ? 'warn' : 'ok',
+        tab: 'jobs', filter: 'pending-co' },
+      { label: 'Time Pending Approval', value: pendingTime, tone: pendingTime > 0 ? 'warn' : 'ok',
+        tab: 'time', filter: 'pending' },
+      { label: 'Open Tasks', value: openTasks, tab: 'tasks', filter: 'open' },
+      { label: 'Overdue Tasks', value: overdueTasks, tone: overdueTasks > 0 ? 'warn' : 'ok',
+        tab: 'tasks', filter: 'overdue' }
+    ];
+
     const el = document.getElementById('tab-dashboard');
     el.innerHTML = `
       <div class="toolbar"><h2>Overview</h2></div>
       <div class="cards">
-        <div class="stat"><div class="label">Active Jobs</div><div class="value">${activeJobs}</div></div>
-        <div class="stat"><div class="label">Underbilled</div><div class="value ${unbilled > 0 ? 'warn' : 'ok'}">${fmtMoney(unbilled)}</div>
-          <div style="font-size:11px;color:var(--text-dim);">ready to invoice</div>
-        </div>
-        <div class="stat"><div class="label">Overdue Invoices</div><div class="value ${overdueInvoices > 0 ? 'warn' : 'ok'}">${overdueInvoices}</div></div>
-        <div class="stat"><div class="label">Open Estimates</div><div class="value">${openEstimates}</div></div>
-        <div class="stat"><div class="label">Change Orders Pending</div><div class="value ${pendingCOs > 0 ? 'warn' : 'ok'}">${pendingCOs}</div></div>
-        <div class="stat"><div class="label">Time Pending Approval</div><div class="value ${pendingTime > 0 ? 'warn' : 'ok'}">${pendingTime}</div></div>
-        <div class="stat"><div class="label">Open Tasks</div><div class="value">${openTasks}</div></div>
-        <div class="stat"><div class="label">Overdue Tasks</div><div class="value ${overdueTasks > 0 ? 'warn' : 'ok'}">${overdueTasks}</div></div>
+        ${tiles.map(t => `
+          <button class="stat" data-action="goto" data-target="${t.tab}" data-filter="${t.filter || 'all'}">
+            <div class="label">${t.label}</div>
+            <div class="value ${t.tone || ''}">${t.value}</div>
+            ${t.sub ? `<div style="font-size:11px;color:var(--text-dim);">${t.sub}</div>` : ''}
+          </button>`).join('')}
       </div>
       <div class="toolbar"><h2>Recent Jobs</h2></div>
       ${jobsTable(db.jobs.slice().sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||'')).slice(0, 6), false)}
@@ -595,9 +679,15 @@
       return;
     }
     currentJobId = null;
+    let list = db.jobs;
+    if (filters.jobs === 'active') list = list.filter(j => j.status === 'active');
+    else if (filters.jobs === 'pending-co') {
+      list = list.filter(j => db.changeOrders.some(c => c.jobId === j.id && c.status === 'pending'));
+    }
     el.innerHTML = `
       <div class="toolbar"><h2>Jobs</h2><button class="primary" data-action="new-job">+ New Job</button></div>
-      ${jobsTable(db.jobs, true)}
+      ${filterChip('jobs')}
+      ${jobsTable(list, true)}
     `;
   }
 
@@ -939,10 +1029,14 @@
   // ---------- Invoices ----------
   function renderInvoices() {
     const el = document.getElementById('tab-invoices');
+    let list = db.invoices;
+    if (filters.invoices === 'overdue') list = list.filter(i => invoiceStatus(i) === 'overdue');
+    else if (filters.invoices === 'unpaid') list = list.filter(i => i.status !== 'paid');
     el.innerHTML = `
       <div class="toolbar"><h2>Invoices</h2><button class="primary" data-action="new-invoice">+ New Invoice</button></div>
-      ${db.invoices.length ? `<table><thead><tr><th>#</th><th>Job</th><th>Date</th><th>Due</th><th>Status</th><th class="num">Total</th><th></th></tr></thead><tbody>
-        ${db.invoices.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(i => `<tr>
+      ${filterChip('invoices')}
+      ${list.length ? `<table><thead><tr><th>#</th><th>Job</th><th>Date</th><th>Due</th><th>Status</th><th class="num">Total</th><th></th></tr></thead><tbody>
+        ${list.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(i => `<tr>
           <td>${escapeHtml(i.number)}</td>
           <td>${escapeHtml(jobName(i.jobId))}</td>
           <td>${fmtDate(i.date)}</td>
@@ -955,7 +1049,7 @@
             <button class="ghost danger" data-action="delete-invoice" data-id="${i.id}">Delete</button>
           </td>
         </tr>`).join('')}
-      </tbody></table>` : '<div class="empty">No invoices yet.</div>'}
+      </tbody></table>` : `<div class="empty">${filters.invoices === 'all' ? 'No invoices yet.' : 'No invoices match this filter.'}</div>`}
       <div id="print-area" class="print-only"></div>
     `;
   }
@@ -1149,10 +1243,13 @@
   // ---------- Time Tracker ----------
   function renderTime() {
     const el = document.getElementById('tab-time');
+    let list = db.timeEntries;
+    if (filters.time === 'pending') list = list.filter(t => !t.approved);
     el.innerHTML = `
       <div class="toolbar"><h2>Time Tracker</h2><button class="primary" data-action="new-time">+ Log Time</button></div>
-      ${db.timeEntries.length ? `<table><thead><tr><th>Date</th><th>Worker</th><th>Job</th><th class="num">Hours</th><th class="num">Rate</th><th>Status</th><th></th></tr></thead><tbody>
-        ${db.timeEntries.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(t => `<tr>
+      ${filterChip('time')}
+      ${list.length ? `<table><thead><tr><th>Date</th><th>Worker</th><th>Job</th><th class="num">Hours</th><th class="num">Rate</th><th>Status</th><th></th></tr></thead><tbody>
+        ${list.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(t => `<tr>
           <td>${fmtDate(t.date)}</td>
           <td>${escapeHtml(t.worker)}</td>
           <td>${escapeHtml(jobName(t.jobId))}</td>
@@ -1164,7 +1261,7 @@
             <button class="ghost danger" data-action="delete-time" data-id="${t.id}">Delete</button>
           </td>
         </tr>`).join('')}
-      </tbody></table>` : '<div class="empty">No time entries yet.</div>'}
+      </tbody></table>` : `<div class="empty">${filters.time === 'all' ? 'No time entries yet.' : 'Nothing pending approval.'}</div>`}
     `;
   }
 
@@ -1201,10 +1298,14 @@
   // ---------- Tasks ----------
   function renderTasks() {
     const el = document.getElementById('tab-tasks');
+    let list = db.tasks;
+    if (filters.tasks === 'open') list = list.filter(t => !t.done);
+    else if (filters.tasks === 'overdue') list = list.filter(t => !t.done && t.dueDate && t.dueDate < todayStr());
     el.innerHTML = `
       <div class="toolbar"><h2>Tasks</h2><button class="primary" data-action="new-task">+ New Task</button></div>
-      ${db.tasks.length ? `<table><thead><tr><th></th><th>Task</th><th>Job</th><th>Due</th><th></th></tr></thead><tbody>
-        ${db.tasks.slice().sort((a,b)=>(a.dueDate||'').localeCompare(b.dueDate||'')).map(t => {
+      ${filterChip('tasks')}
+      ${list.length ? `<table><thead><tr><th></th><th>Task</th><th>Job</th><th>Due</th><th></th></tr></thead><tbody>
+        ${list.slice().sort((a,b)=>(a.dueDate||'').localeCompare(b.dueDate||'')).map(t => {
           const overdue = !t.done && t.dueDate && t.dueDate < todayStr();
           return `<tr>
           <td><input type="checkbox" data-action="toggle-task" data-id="${t.id}" ${t.done ? 'checked' : ''}></td>
@@ -1214,7 +1315,7 @@
           <td><button class="ghost danger" data-action="delete-task" data-id="${t.id}">Delete</button></td>
         </tr>`;
         }).join('')}
-      </tbody></table>` : '<div class="empty">No tasks yet.</div>'}
+      </tbody></table>` : `<div class="empty">${filters.tasks === 'all' ? 'No tasks yet.' : 'No tasks match this filter.'}</div>`}
     `;
   }
 
@@ -1248,10 +1349,13 @@
 
   function renderEstimates() {
     const el = document.getElementById('tab-estimates');
+    let list = db.estimates;
+    if (filters.estimates === 'open') list = list.filter(e => e.status === 'draft' || e.status === 'sent');
     el.innerHTML = `
       <div class="toolbar"><h2>Estimates</h2><button class="primary" data-action="new-estimate">+ New Estimate</button></div>
-      ${db.estimates.length ? `<table><thead><tr><th>#</th><th>Name</th><th>Client</th><th>Date</th><th>Status</th><th class="num">Cost</th><th class="num">Price</th><th></th></tr></thead><tbody>
-        ${db.estimates.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(e => `<tr>
+      ${filterChip('estimates')}
+      ${list.length ? `<table><thead><tr><th>#</th><th>Name</th><th>Client</th><th>Date</th><th>Status</th><th class="num">Cost</th><th class="num">Price</th><th></th></tr></thead><tbody>
+        ${list.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(e => `<tr>
           <td>${escapeHtml(e.number)}</td>
           <td>${escapeHtml(e.name || '')}</td>
           <td>${escapeHtml(clientName(e.clientId))}</td>
@@ -1265,7 +1369,7 @@
             <button class="ghost danger" data-action="delete-estimate" data-id="${e.id}">×</button>
           </td>
         </tr>`).join('')}
-      </tbody></table>` : '<div class="empty">No estimates yet. Build one here, then convert it to a job when the client accepts.</div>'}
+      </tbody></table>` : `<div class="empty">${filters.estimates === 'all' ? 'No estimates yet. Build one here, then convert it to a job when the client accepts.' : 'No open estimates.'}</div>`}
     `;
   }
 
@@ -1573,6 +1677,18 @@
 
     switch (action) {
       case 'close-modal': closeModal(); break;
+
+      case 'goto': {
+        const target = btn.dataset.target;
+        if (Object.prototype.hasOwnProperty.call(filters, target)) filters[target] = btn.dataset.filter || 'all';
+        if (target === 'jobs') currentJobId = null;
+        setTab(target);
+        break;
+      }
+      case 'clear-filter':
+        filters[btn.dataset.kind] = 'all';
+        renderAll();
+        break;
 
       case 'new-job': jobFormModal(); break;
       case 'edit-job': jobFormModal(db.jobs.find(j => j.id === id)); break;
