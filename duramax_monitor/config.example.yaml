@@ -1,0 +1,44 @@
+# Copy this to config.yaml and adjust for your setup.
+
+connection:
+  # serial:///dev/ttyUSB0   (USB ELM327, Linux)
+  # serial://COM5           (USB/Bluetooth-SPP ELM327, Windows)
+  # serial:///dev/rfcomm0   (paired Bluetooth ELM327, Linux, after rfcommbind)
+  # socket://192.168.0.10:35000   (WiFi ELM327)
+  # sim://                  (built-in simulator, no hardware needed)
+  uri: "sim://"
+  timeout: 2.0
+
+monitor:
+  interval: 0.5
+  # Standard (Mode 01) PID names to poll - see duramax_monitor/pids.py for
+  # the full list of names this build knows how to decode.
+  pids:
+    - rpm
+    - speed
+    - coolant_temp
+    - intake_air_temp
+    - engine_load
+    - throttle_pos
+    - control_module_voltage
+    - fuel_level
+  log_csv: "logs/session.csv"
+
+alerts:
+  - name: coolant_temp
+    max: 111        # ~232F, typical GM overheat warning threshold
+  - name: control_module_voltage
+    min: 11.5
+    max: 15.5
+
+# GM enhanced (Mode 22) PIDs for boost/EGT/trans-temp/DPF/DEF go here ONCE
+# YOU HAVE VERIFIED THEM YOURSELF - see duramax_monitor/enhanced_pids.py
+# for why we don't ship any pre-filled. Example shape (values below are
+# illustrative placeholders, NOT verified - replace before use):
+#
+# enhanced_pids:
+#   - pid: 0x1234
+#     name: trans_fluid_temp
+#     unit: C
+#     formula: "b[0] - 40"
+#     description: "Verified against DIC trans temp readout on 2026-01-01"
