@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>All Terrain Contractors — Job Manager</title>
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --card: #ffffff;
+    --border: #e2e4e9;
+    --text: #1c1f26;
+    --text-dim: #6b7280;
+    --accent: #2f6b4f;
+    --accent-dim: #e8f0eb;
+    --danger: #b8452f;
+    --warn: #c47f17;
+    --ok: #2f6b4f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  header {
+    background: var(--text);
+    color: #fff;
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  header h1 { font-size: 18px; margin: 0; font-weight: 700; letter-spacing: 0.2px; }
+  header .sub { font-size: 12px; color: #aeb4bf; }
+  nav {
+    display: flex;
+    gap: 4px;
+    overflow-x: auto;
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    padding: 0 12px;
+  }
+  nav button {
+    border: none;
+    background: none;
+    padding: 12px 14px;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+  }
+  nav button.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+  main { padding: 20px; max-width: 1100px; margin: 0 auto; }
+  .section { display: none; }
+  .section.active { display: block; }
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .stat {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .stat .label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.4px; }
+  .stat .value { font-size: 22px; font-weight: 700; margin-top: 4px; }
+  .stat .value.warn { color: var(--warn); }
+  .stat .value.ok { color: var(--ok); }
+  .toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .toolbar h2 { margin: 0; font-size: 17px; }
+  button.primary {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 9px 16px;
+    border-radius: 7px;
+    font-size: 13.5px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button.primary:hover { opacity: 0.92; }
+  button.ghost {
+    background: none;
+    border: 1px solid var(--border);
+    padding: 6px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12.5px;
+    color: var(--text-dim);
+  }
+  button.ghost:hover { background: var(--bg); }
+  button.ghost.danger { color: var(--danger); border-color: #edd; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    font-size: 13.5px;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  th { background: #fafbfc; color: var(--text-dim); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.3px; }
+  tr:last-child td { border-bottom: none; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 11.5px;
+    font-weight: 600;
+  }
+  .badge.active, .badge.paid, .badge.done { background: var(--accent-dim); color: var(--accent); }
+  .badge.quoted, .badge.draft, .badge.pending { background: #eef1f5; color: var(--text-dim); }
+  .badge.overdue, .badge.over { background: #fbe9e5; color: var(--danger); }
+  .badge.sent { background: #fdf2e0; color: var(--warn); }
+  .empty { color: var(--text-dim); font-size: 13.5px; padding: 20px; text-align: center; }
+  .modal-backdrop {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(15,17,21,0.45);
+    align-items: flex-start;
+    justify-content: center;
+    padding: 40px 16px;
+    overflow-y: auto;
+    z-index: 50;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal {
+    background: var(--card);
+    border-radius: 12px;
+    padding: 20px;
+    width: 100%;
+    max-width: 480px;
+  }
+  .modal h3 { margin: 0 0 14px; font-size: 16px; }
+  .field { margin-bottom: 12px; }
+  .field label { display: block; font-size: 12.5px; font-weight: 600; color: var(--text-dim); margin-bottom: 4px; }
+  .field input, .field select, .field textarea {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13.5px;
+    font-family: inherit;
+  }
+  .field textarea { resize: vertical; min-height: 60px; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+  button.secondary {
+    background: none;
+    border: 1px solid var(--border);
+    padding: 9px 16px;
+    border-radius: 7px;
+    font-size: 13.5px;
+    cursor: pointer;
+  }
+  .line-items { border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 10px; }
+  .line-item-row { display: grid; grid-template-columns: 1fr 60px 90px 30px; gap: 6px; margin-bottom: 6px; align-items: center; }
+  .line-item-row input { padding: 6px 8px; font-size: 13px; }
+  .row-total { text-align: right; font-weight: 700; font-size: 14px; margin-top: 8px; }
+  .job-link { color: var(--accent); text-decoration: none; font-weight: 600; cursor: pointer; }
+  .job-link:hover { text-decoration: underline; }
+  .print-only { display: none; }
+  @media print {
+    header, nav, .toolbar button, .no-print { display: none !important; }
+    .print-only { display: block; }
+    main { padding: 0; max-width: none; }
+    body { background: #fff; }
+  }
+  ::placeholder { color: #b3b8c2; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>All Terrain Contractors</h1>
+    <div class="sub">Job Manager — data stored locally in this browser</div>
+  </div>
+  <div class="sub" id="today"></div>
+</header>
+
+<nav id="tabs">
+  <button data-tab="dashboard" class="active">Dashboard</button>
+  <button data-tab="jobs">Jobs</button>
+  <button data-tab="clients">Clients</button>
+  <button data-tab="vendors">Vendors</button>
+  <button data-tab="invoices">Invoices</button>
+  <button data-tab="bills">Bills</button>
+  <button data-tab="time">Time Tracker</button>
+  <button data-tab="tasks">Tasks</button>
+  <button data-tab="reports">Reports</button>
+</nav>
+
+<main>
+
+  <section id="tab-dashboard" class="section active"></section>
+  <section id="tab-jobs" class="section"></section>
+  <section id="tab-clients" class="section"></section>
+  <section id="tab-vendors" class="section"></section>
+  <section id="tab-invoices" class="section"></section>
+  <section id="tab-bills" class="section"></section>
+  <section id="tab-time" class="section"></section>
+  <section id="tab-tasks" class="section"></section>
+  <section id="tab-reports" class="section"></section>
+
+</main>
+
+<div class="modal-backdrop" id="modal-backdrop">
+  <div class="modal" id="modal"></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  const STORAGE_KEY = 'atc_job_manager_v1';
+
+  function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+  function fmtMoney(n) { return '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  function fmtDate(d) { if (!d) return ''; const dt = new Date(d + 'T00:00:00'); return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
+  function todayStr() { return new Date().toISOString().slice(0, 10); }
+  function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+  function defaultData() {
+    return { clients: [], vendors: [], jobs: [], invoices: [], bills: [], timeEntries: [], tasks: [], catalog: [] };
+  }
+
+  let db = load();
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return defaultData();
+      const parsed = JSON.parse(raw);
+      const d = defaultData();
+      Object.keys(d).forEach(k => { if (Array.isArray(parsed[k])) d[k] = parsed[k]; });
+      return d;
+    } catch (e) {
+      console.error('Failed to load data', e);
+      return defaultData();
+    }
+  }
+
+  function save() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+  }
+
+  // ---------- lookups ----------
+  function clientName(id) { const c = db.clients.find(x => x.id === id); return c ? c.name : '—'; }
+  function jobName(id) { const j = db.jobs.find(x => x.id === id); return j ? j.name : '—'; }
+  function vendorName(id) { const v = db.vendors.find(x => x.id === id); return v ? v.name : '—'; }
+
+  function jobActualCost(jobId) {
+    const billTotal = db.bills.filter(b => b.jobId === jobId).reduce((s, b) => s + Number(b.amount || 0), 0);
+    const laborTotal = db.timeEntries.filter(t => t.jobId === jobId).reduce((s, t) => s + Number(t.hours || 0) * Number(t.rate || 0), 0);
+    return billTotal + laborTotal;
+  }
+
+  function jobInvoicedTotal(jobId) {
+    return db.invoices.filter(i => i.jobId === jobId).reduce((s, i) => s + lineItemsTotal(i.lineItems), 0);
+  }
+
+  function lineItemsTotal(items) {
+    return (items || []).reduce((s, li) => s + Number(li.qty || 0) * Number(li.rate || 0), 0);
+  }
+
+  function invoiceStatus(inv) {
+    if (inv.status === 'paid') return 'paid';
+    if (inv.status === 'draft') return 'draft';
+    if (inv.dueDate && inv.dueDate < todayStr()) return 'overdue';
+    return 'sent';
+  }
+
+  // ---------- tabs ----------
+  const tabButtons = document.querySelectorAll('#tabs button');
+  tabButtons.forEach(btn => {
+    btn.addEventListener('click', () => setTab(btn.dataset.tab));
+  });
+
+  function setTab(name) {
+    tabButtons.forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    document.getElementById('tab-' + name).classList.add('active');
+    render(name);
+  }
+
+  function render(name) {
+    if (name === 'dashboard') renderDashboard();
+    if (name === 'jobs') renderJobs();
+    if (name === 'clients') renderClients();
+    if (name === 'vendors') renderVendors();
+    if (name === 'invoices') renderInvoices();
+    if (name === 'bills') renderBills();
+    if (name === 'time') renderTime();
+    if (name === 'tasks') renderTasks();
+    if (name === 'reports') renderReports();
+  }
+
+  function renderAll() {
+    const active = document.querySelector('#tabs button.active').dataset.tab;
+    render(active);
+  }
+
+  // ---------- Dashboard ----------
+  function renderDashboard() {
+    const activeJobs = db.jobs.filter(j => j.status === 'active').length;
+    const unbilled = db.jobs.reduce((s, j) => {
+      const invoiced = jobInvoicedTotal(j.id);
+      const cost = jobActualCost(j.id);
+      return s + Math.max(0, cost - invoiced);
+    }, 0);
+    const overdueInvoices = db.invoices.filter(i => invoiceStatus(i) === 'overdue').length;
+    const pendingTime = db.timeEntries.filter(t => !t.approved).length;
+    const openTasks = db.tasks.filter(t => !t.done).length;
+    const overdueTasks = db.tasks.filter(t => !t.done && t.dueDate && t.dueDate < todayStr()).length;
+
+    const el = document.getElementById('tab-dashboard');
+    el.innerHTML = `
+      <div class="toolbar"><h2>Overview</h2></div>
+      <div class="cards">
+        <div class="stat"><div class="label">Active Jobs</div><div class="value">${activeJobs}</div></div>
+        <div class="stat"><div class="label">Unbilled Cost</div><div class="value ${unbilled > 0 ? 'warn' : ''}">${fmtMoney(unbilled)}</div></div>
+        <div class="stat"><div class="label">Overdue Invoices</div><div class="value ${overdueInvoices > 0 ? 'warn' : 'ok'}">${overdueInvoices}</div></div>
+        <div class="stat"><div class="label">Time Pending Approval</div><div class="value ${pendingTime > 0 ? 'warn' : 'ok'}">${pendingTime}</div></div>
+        <div class="stat"><div class="label">Open Tasks</div><div class="value">${openTasks}</div></div>
+        <div class="stat"><div class="label">Overdue Tasks</div><div class="value ${overdueTasks > 0 ? 'warn' : 'ok'}">${overdueTasks}</div></div>
+      </div>
+      <div class="toolbar"><h2>Recent Jobs</h2></div>
+      ${jobsTable(db.jobs.slice().sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||'')).slice(0, 6), false)}
+    `;
+  }
+
+  // ---------- Jobs ----------
+  function jobsTable(jobs, full) {
+    if (!jobs.length) return '<div class="empty">No jobs yet.</div>';
+    return `<table><thead><tr>
+        <th>Job</th><th>Type</th><th>Client</th><th>Status</th>
+        <th class="num">Budget</th><th class="num">Actual Cost</th><th class="num">Invoiced</th>
+        ${full ? '<th></th>' : ''}
+      </tr></thead><tbody>
+      ${jobs.map(j => {
+        const cost = jobActualCost(j.id);
+        const invoiced = jobInvoicedTotal(j.id);
+        const overBudget = j.budget && cost > Number(j.budget);
+        return `<tr>
+          <td><a class="job-link" data-action="edit-job" data-id="${j.id}">${escapeHtml(j.name)}</a></td>
+          <td>${escapeHtml(j.type)}</td>
+          <td>${escapeHtml(clientName(j.clientId))}</td>
+          <td><span class="badge ${j.status}">${escapeHtml(j.status)}</span></td>
+          <td class="num">${j.budget ? fmtMoney(j.budget) : '—'}</td>
+          <td class="num"><span class="badge ${overBudget ? 'over' : ''}">${fmtMoney(cost)}</span></td>
+          <td class="num">${fmtMoney(invoiced)}</td>
+          ${full ? `<td><button class="ghost danger" data-action="delete-job" data-id="${j.id}">Delete</button></td>` : ''}
+        </tr>`;
+      }).join('')}
+      </tbody></table>`;
+  }
+
+  function renderJobs() {
+    const el = document.getElementById('tab-jobs');
+    el.innerHTML = `
+      <div class="toolbar"><h2>Jobs</h2><button class="primary" data-action="new-job">+ New Job</button></div>
+      ${jobsTable(db.jobs, true)}
+    `;
+  }
+
+  function jobFormModal(job) {
+    const isEdit = !!job;
+    job = job || { id: uid(), type: 'contract', status: 'quoted', createdAt: todayStr() };
+    const clientOptions = db.clients.map(c => `<option value="${c.id}" ${c.id === job.clientId ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('');
+    openModal(`
+      <h3>${isEdit ? 'Edit Job' : 'New Job'}</h3>
+      <div class="field"><label>Job Name</label><input id="f-name" value="${escapeHtml(job.name || '')}" placeholder="e.g. Smith Deck Rebuild"></div>
+      <div class="field"><label>Type</label>
+        <select id="f-type">
+          <option value="contract" ${job.type === 'contract' ? 'selected' : ''}>Contract job</option>
+          <option value="service" ${job.type === 'service' ? 'selected' : ''}>Service job</option>
+          <option value="internal" ${job.type === 'internal' ? 'selected' : ''}>Internal project</option>
+        </select>
+      </div>
+      <div class="field"><label>Client</label><select id="f-client"><option value="">— none —</option>${clientOptions}</select></div>
+      <div class="field"><label>Status</label>
+        <select id="f-status">
+          <option value="quoted" ${job.status === 'quoted' ? 'selected' : ''}>Quoted</option>
+          <option value="active" ${job.status === 'active' ? 'selected' : ''}>Active</option>
+          <option value="done" ${job.status === 'done' ? 'selected' : ''}>Done</option>
+        </select>
+      </div>
+      <div class="field"><label>Address</label><input id="f-address" value="${escapeHtml(job.address || '')}"></div>
+      <div class="field"><label>Budget ($)</label><input id="f-budget" type="number" step="0.01" value="${job.budget || ''}"></div>
+      <div class="field"><label>Notes</label><textarea id="f-notes">${escapeHtml(job.notes || '')}</textarea></div>
+      <div class="modal-actions">
+        <button class="secondary" data-action="close-modal">Cancel</button>
+        <button class="primary" id="save-job">Save Job</button>
+      </div>
+    `);
+    document.getElementById('f-client').value = job.clientId || '';
+    document.getElementById('save-job').addEventListener('click', () => {
+      job.name = document.getElementById('f-name').value.trim() || 'Untitled job';
+      job.type = document.getElementById('f-type').value;
+      job.clientId = document.getElementById('f-client').value || null;
+      job.status = document.getElementById('f-status').value;
+      job.address = document.getElementById('f-address').value.trim();
+      job.budget = parseFloat(document.getElementById('f-budget').value) || 0;
+      job.notes = document.getElementById('f-notes').value.trim();
+      if (!isEdit) db.jobs.push(job);
+      save(); closeModal(); renderAll();
+    });
+  }
+
+  // ---------- Clients ----------
+  function renderClients() {
+    const el = document.getElementById('tab-clients');
+    el.innerHTML = `
+      <div class="toolbar"><h2>Clients</h2><button class="primary" data-action="new-client">+ New Client</button></div>
+      ${db.clients.length ? `<table><thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>Address</th><th></th></tr></thead><tbody>
+        ${db.clients.map(c => `<tr>
+          <td>${escapeHtml(c.name)}</td><td>${escapeHtml(c.phone || '')}</td><td>${escapeHtml(c.email || '')}</td><td>${escapeHtml(c.address || '')}</td>
+          <td><button class="ghost" data-action="edit-client" data-id="${c.id}">Edit</button> <button class="ghost danger" data-action="delete-client" data-id="${c.id}">Delete</button></td>
+        </tr>`).join('')}
+      </tbody></table>` : '<div class="empty">No clients yet.</div>'}
+    `;
+  }
+
+  function clientFormModal(client) {
+    const isEdit = !!client;
+    client = client || { id: uid() };
+    openModal(`
+      <h3>${isEdit ? 'Edit Client' : 'New Client'}</h3>
+      <div class="field"><label>Name</label><input id="f-name" value="${escapeHtml(client.name || '')}"></div>
+      <div class="field"><label>Phone</label><input id="f-phone" value="${escapeHtml(client.phone || '')}"></div>
+      <div class="field"><label>Email</label><input id="f-email" value="${escapeHtml(client.email || '')}"></div>
+      <div class="field"><label>Address</label><input id="f-address" value="${escapeHtml(client.address || '')}"></div>
+      <div class="modal-actions">
+        <button class="secondary" data-action="close-modal">Cancel</button>
+        <button class="primary" id="save-client">Save Client</button>
+      </div>
+    `);
+    document.getElementById('save-client').addEventListener('click', () => {
+      client.name = document.getElementById('f-name').value.trim() || 'Unnamed client';
+      client.phone = document.getElementById('f-phone').value.trim();
+      client.email = document.getElementById('f-email').value.trim();
+      client.address = document.getElementById('f-address').value.trim();
+      if (!isEdit) db.clients.push(client);
+      save(); closeModal(); renderAll();
+    });
+  }
+
+  // ---------- Vendors ----------
+  function renderVendors() {
+    const el = document.getElementById('tab-vendors');
+    el.innerHTML = `
+      <div class="toolbar"><h2>Vendors</h2><button class="primary" data-action="new-vendor">+ New Vendor</button></div>
+      ${db.vendors.length ? `<table><thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>Trade</th><th></th></tr></thead><tbody>
+        ${db.vendors.map(v => `<tr>
+          <td>${escapeHtml(v.name)}</td><td>${escapeHtml(v.phone || '')}</td><td>${escapeHtml(v.email || '')}</td><td>${escapeHtml(v.trade || '')}</td>
+          <td><button class="ghost" data-action="edit-vendor" data-id="${v.id}">Edit</button> <button class="ghost danger" data-action="delete-vendor" data-id="${v.id}">Delete</button></td>
+        </tr>`).join('')}
+      </tbody></table>` : '<div class="empty">No vendors yet.</div>'}
+    `;
+  }
+
+  function vendorFormModal(vendor) {
+    const isEdit = !!vendor;
+    vendor = vendor || { id: uid() };
+    openModal(`
+      <h3>${isEdit ? 'Edit Vendor' : 'New Vendor'}</h3>
+      <div class="field"><label>Name</label><input id="f-name" value="${escapeHtml(vendor.name || '')}"></div>
+      <div class="field"><label>Trade / Category</label><input id="f-trade" value="${escapeHtml(vendor.trade || '')}" placeholder="e.g. Electrical, Lumber supplier"></div>
+      <div class="field"><label>Phone</label><input id="f-phone" value="${escapeHtml(vendor.phone || '')}"></div>
+      <div class="field"><label>Email</label><input id="f-email" value="${escapeHtml(vendor.email || '')}"></div>
+      <div class="modal-actions">
+        <button class="secondary" data-action="close-modal">Cancel</button>
+        <button class="primary" id="save-vendor">Save Vendor</button>
+      </div>
+    `);
+    document.getElementById('save-vendor').addEventListener('click', () => {
+      vendor.name = document.getElementById('f-name').value.trim() || 'Unnamed vendor';
+      vendor.trade = document.getElementById('f-trade').value.trim();
+      vendor.phone = document.getElementById('f-phone').value.trim();
+      vendor.email = document.getElementById('f-email').value.trim();
+      if (!isEdit) db.vendors.push(vendor);
+      save(); closeModal(); renderAll();
+    });
+  }
+
+  // ---------- Invoices ----------
+  function renderInvoices() {
+    const el = document.getElementById('tab-invoices');
+    el.innerHTML = `
+      <div class="toolbar"><h2>Invoices</h2><button class="primary" data-action="new-invoice">+ New Invoice</button></div>
+      ${db.invoices.length ? `<table><thead><tr><th>#</th><th>Job</th><th>Date</th><th>Due</th><th>Status</th><th class="num">Total</th><th></th></tr></thead><tbody>
+        ${db.invoices.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(i => `<tr>
+          <td>${escapeHtml(i.number)}</td>
+          <td>${escapeHtml(jobName(i.jobId))}</td>
+          <td>${fmtDate(i.date)}</td>
+          <td>${fmtDate(i.dueDate)}</td>
+          <td><span class="badge ${invoiceStatus(i)}">${invoiceStatus(i)}</span></td>
+          <td class="num">${fmtMoney(lineItemsTotal(i.lineItems))}</td>
+          <td>
+            <button class="ghost" data-action="edit-invoice" data-id="${i.id}">Edit</button>
+            <button class="ghost" data-action="print-invoice" data-id="${i.id}">Print</button>
+            <button class="ghost danger" data-action="delete-invoice" data-id="${i.id}">Delete</button>
+          </td>
+        </tr>`).join('')}
+      </tbody></table>` : '<div class="empty">No invoices yet.</div>'}
+      <div id="print-area" class="print-only"></div>
+    `;
+  }
+
+  function nextInvoiceNumber() {
+    const n = db.invoices.length + 1;
+    return 'INV-' + String(n).padStart(4, '0');
+  }
+
+  function invoiceFormModal(invoice) {
+    const isEdit = !!invoice;
+    invoice = invoice || { id: uid(), number: nextInvoiceNumber(), date: todayStr(), status: 'draft', lineItems: [{ desc: '', qty: 1, rate: 0 }] };
+    const jobOptions = db.jobs.map(j => `<option value="${j.id}" ${j.id === invoice.jobId ? 'selected' : ''}>${escapeHtml(j.name)}</option>`).join('');
+
+    function lineItemsHtml() {
+      return invoice.lineItems.map((li, idx) => `
+        <div class="line-item-row" data-idx="${idx}">
+          <input class="li-desc" placeholder="Description" value="${escapeHtml(li.desc)}">
+          <input class="li-qty" type="number" step="0.01" placeholder="Qty" value="${li.qty}">
+          <input class="li-rate" type="number" step="0.01" placeholder="Rate" value="${li.rate}">
+          <button class="ghost danger" data-action="remove-line" data-idx="${idx}">×</button>
+        </div>`).join('');
+    }
+
+    openModal(`
+      <h3>${isEdit ? 'Edit Invoice' : 'New Invoice'}</h3>
+      <div class="field"><label>Invoice #</label><input id="f-number" value="${escapeHtml(invoice.number)}"></div>
+      <div class="field"><label>Job</label><select id="f-job">${jobOptions}</select></div>
+      <div class="field"><label>Date</label><input id="f-date" type="date" value="${invoice.date}"></div>
+      <div class="field"><label>Due Date</label><input id="f-due" type="date" value="${invoice.dueDate || ''}"></div>
+      <div class="field"><label>Status</label>
+        <select id="f-status">
+          <option value="draft" ${invoice.status === 'draft' ? 'selected' : ''}>Draft</option>
+          <option value="sent" ${invoice.status === 'sent' ? 'selected' : ''}>Sent</option>
+          <option value="paid" ${invoice.status === 'paid' ? 'selected' : ''}>Paid</option>
+        </select>
+      </div>
+      <div class="field"><label>Line Items</label>
+        <div class="line-items" id="line-items">${lineItemsHtml()}</div>
+        <button class="ghost" data-action="add-line">+ Add Line</button>
+        <div class="row-total" id="inv-total">${fmtMoney(lineItemsTotal(invoice.lineItems))}</div>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary" data-action="close-modal">Cancel</button>
+        <button class="primary" id="save-invoice">Save Invoice</button>
+      </div>
+    `);
+
+    function syncLineItemsFromDom() {
+      const rows = document.querySelectorAll('#line-items .line-item-row');
+      invoice.lineItems = Array.from(rows).map(row => ({
+        desc: row.querySelector('.li-desc').value,
+        qty: parseFloat(row.querySelector('.li-qty').value) || 0,
+        rate: parseFloat(row.querySelector('.li-rate').value) || 0
+      }));
+      document.getElementById('inv-total').textContent = fmtMoney(lineItemsTotal(invoice.lineItems));
+    }
+
+    document.getElementById('line-items').addEventListener('input', syncLineItemsFromDom);
+    document.getElementById('line-items').addEventListener('click', e => {
+      const btn = e.target.closest('[data-action="remove-line"]');
+      if (!btn) return;
+      syncLineItemsFromDom();
+      invoice.lineItems.splice(parseInt(btn.dataset.idx, 10), 1);
+      rerenderLineItems();
+    });
+
+    function rerenderLineItems() {
+      document.getElementById('line-items').innerHTML = lineItemsHtml();
+      document.getElementById('inv-total').textContent = fmtMoney(lineItemsTotal(invoice.lineItems));
+    }
+
+    document.querySelector('#modal [data-action="add-line"]').addEventListener('click', () => {
+      syncLineItemsFromDom();
+      invoice.lineItems.push({ desc: '', qty: 1, rate: 0 });
+      rerenderLineItems();
+    });
+
+    document.getElementById('save-invoice').addEventListener('click', () => {
+      syncLineItemsFromDom();
+      invoice.number = document.getElementById('f-number').value.trim();
+      invoice.jobId = document.getElementById('f-job').value;
+      invoice.date = document.getElementById('f-date').value;
+      invoice.dueDate = document.getElementById('f-due').value;
+      invoice.status = document.getElementById('f-status').value;
+      if (!isEdit) db.invoices.push(invoice);
+      save(); closeModal(); renderAll();
+    });
+  }
+
+  function printInvoice(inv) {
+    const job = db.jobs.find(j => j.id === inv.jobId);
+    const client = job ? db.clients.find(c => c.id === job.clientId) : null;
+    const rows = inv.lineItems.map(li => `<tr><td>${escapeHtml(li.desc)}</td><td style="text-align:right">${li.qty}</td><td style="text-align:right">${fmtMoney(li.rate)}</td><td style="text-align:right">${fmtMoney(li.qty*li.rate)}</td></tr>`).join('');
+    const win = window.open('', '_blank');
+    win.document.write(`
+      <html><head><title>${escapeHtml(inv.number)}</title>
+      <style>
+        body{font-family:sans-serif;padding:40px;color:#1c1f26;}
+        h1{margin:0 0 4px;} .muted{color:#6b7280;font-size:13px;}
+        table{width:100%;border-collapse:collapse;margin-top:24px;}
+        th,td{padding:8px;border-bottom:1px solid #e2e4e9;text-align:left;}
+        .total{font-size:18px;font-weight:700;text-align:right;margin-top:16px;}
+      </style></head><body>
+      <h1>All Terrain Contractors</h1>
+      <div class="muted">Invoice ${escapeHtml(inv.number)} — ${fmtDate(inv.date)}${inv.dueDate ? ' — Due ' + fmtDate(inv.dueDate) : ''}</div>
+      <p><strong>Bill to:</strong> ${escapeHtml(client ? client.name : 'N/A')}<br>${escapeHtml(client ? client.address || '' : '')}</p>
+      <p><strong>Job:</strong> ${escapeHtml(job ? job.name : 'N/A')}</p>
+      <table><thead><tr><th>Description</th><th style="text-align:right">Qty</th><th style="text-align:right">Rate</th><th style="text-align:right">Amount</th></tr></thead>
+      <tbody>${rows}</tbody></table>
+      <div class="total">Total: ${fmtMoney(lineItemsTotal(inv.lineItems))}</div>
+      </body></html>
+    `);
+    win.document.close();
+    win.focus();
+    setTimeout(() => win.print(), 250);
+  }
+
+  // ---------- Bills / Purchases ----------
+  function renderBills() {
+    const el = document.getElementById('tab-bills');
+    el.innerHTML = `
+      <div class="toolbar"><h2>Bills &amp; Purchases</h2><button class="primary" data-action="new-bill">+ New Bill</button></div>
+      ${db.bills.length ? `<table><thead><tr><th>Date</th><th>Job</th><th>Vendor</th><th>Description</th><th class="num">Amount</th><th>Paid</th><th></th></tr></thead><tbody>
+        ${db.bills.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(b => `<tr>
+          <td>${fmtDate(b.date)}</td>
+          <td>${escapeHtml(jobName(b.jobId))}</td>
+          <td>${escapeHtml(vendorName(b.vendorId))}</td>
+          <td>${escapeHtml(b.description || '')}</td>
+          <td class="num">${fmtMoney(b.amount)}</td>
+          <td><span class="badge ${b.paid ? 'paid' : 'pending'}">${b.paid ? 'Paid' : 'Unpaid'}</span></td>
+          <td><button class="ghost" data-action="edit-bill" data-id="${b.id}">Edit</button> <button class="ghost danger" data-action="delete-bill" data-id="${b.id}">Delete</button></td>
+        </tr>`).join('')}
+      </tbody></table>` : '<div class="empty">No bills yet.</div>'}
+    `;
+  }
+
+  function billFormModal(bill) {
+    const isEdit = !!bill;
+    bill = bill || { id: uid(), date: todayStr(), paid: false };
+    const jobOptions = db.jobs.map(j => `<option value="${j.id}" ${j.id === bill.jobId ? 'selected' : ''}>${escapeHtml(j.name)}</option>`).join('');
+    const vendorOptions = db.vendors.map(v => `<option value="${v.id}" ${v.id === bill.vendorId ? 'selected' : ''}>${escapeHtml(v.name)}</option>`).join('');
+    openModal(`
+      <h3>${isEdit ? 'Edit Bill' : 'New Bill'}</h3>
+      <div class="field"><label>Job</label><select id="f-job"><option value="">— none —</option>${jobOptions}</select></div>
+      <div class="field"><label>Vendor</label><select id="f-vendor"><option value="">— none —</option>${vendorOptions}</select></div>
+      <div class="field"><label>Description</label><input id="f-desc" value="${escapeHtml(bill.description || '')}" placeholder="e.g. Lumber, permit fee, sub labor"></div>
+      <div class="field"><label>Amount ($)</label><input id="f-amount" type="number" step="0.01" value="${bill.amount || ''}"></div>
+      <div class="field"><label>Date</label><input id="f-date" type="date" value="${bill.date}"></div>
+      <div class="field"><label><input type="checkbox" id="f-paid" ${bill.paid ? 'checked' : ''} style="width:auto;margin-right:6px;">Paid</label></div>
+      <div class="modal-actions">
+        <button class="secondary" data-action="close-modal">Cancel</button>
+        <button class="primary" id="save-bill">Save Bill</button>
+      </div>
+    `);
+    document.getElementById('f-job').value = bill.jobId || '';
+    document.getElementById('f-vendor').value = bill.vendorId || '';
+    document.getElementById('save-bill').addEventListener('click', () => {
+      bill.jobId = document.getElementById('f-job').value || null;
+      bill.vendorId = document.getElementById('f-vendor').value || null;
+      bill.description = document.getElementById('f-desc').value.trim();
+      bill.amount = parseFloat(document.getElementById('f-amount').value) || 0;
+      bill.date = document.getElementById('f-date').value;
+      bill.paid = document.getElementById('f-paid').checked;
+      if (!isEdit) db.bills.push(bill);
+      save(); closeModal(); renderAll();
+    });
+  }
+
+  // ---------- Time Tracker ----------
+  function renderTime() {
+    const el = document.getElementById('tab-time');
+    el.innerHTML = `
+      <div class="toolbar"><h2>Time Tracker</h2><button class="primary" data-action="new-time">+ Log Time</button></div>
+      ${db.timeEntries.length ? `<table><thead><tr><th>Date</th><th>Worker</th><th>Job</th><th class="num">Hours</th><th class="num">Rate</th><th>Status</th><th></th></tr></thead><tbody>
+        ${db.timeEntries.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(t => `<tr>
+          <td>${fmtDate(t.date)}</td>
+          <td>${escapeHtml(t.worker)}</td>
+          <td>${escapeHtml(jobName(t.jobId))}</td>
+          <td class="num">${t.hours}</td>
+          <td class="num">${fmtMoney(t.rate)}</td>
+          <td><span class="badge ${t.approved ? 'done' : 'pending'}">${t.approved ? 'Approved' : 'Pending'}</span></td>
+          <td>
+            ${!t.approved ? `<button class="ghost" data-action="approve-time" data-id="${t.id}">Approve</button>` : ''}
+            <button class="ghost danger" data-action="delete-time" data-id="${t.id}">Delete</button>
+          </td>
+        </tr>`).join('')}
+      </tbody></table>` : '<div class="empty">No time entries yet.</div>'}
+    `;
+  }
+
+  function timeFormModal() {
+    const entry = { id: uid(), date: todayStr(), approved: false };
+    const jobOptions = db.jobs.map(j => `<option value="${j.id}">${escapeHtml(j.name)}</option>`).join('');
+    openModal(`
+      <h3>Log Time</h3>
+      <div class="field"><label>Worker Name</label><input id="f-worker" placeholder="e.g. Mike R."></div>
+      <div class="field"><label>Job</label><select id="f-job">${jobOptions}</select></div>
+      <div class="field"><label>Date</label><input id="f-date" type="date" value="${entry.date}"></div>
+      <div class="field"><label>Hours</label><input id="f-hours" type="number" step="0.25" value="8"></div>
+      <div class="field"><label>Hourly Rate ($)</label><input id="f-rate" type="number" step="0.01" value="0"></div>
+      <div class="modal-actions">
+        <button class="secondary" data-action="close-modal">Cancel</button>
+        <button class="primary" id="save-time">Save Entry</button>
+      </div>
+    `);
+    document.getElementById('save-time').addEventListener('click', () => {
+      entry.worker = document.getElementById('f-worker').value.trim() || 'Unnamed';
+      entry.jobId = document.getElementById('f-job').value;
+      entry.date = document.getElementById('f-date').value;
+      entry.hours = parseFloat(document.getElementById('f-hours').value) || 0;
+      entry.rate = parseFloat(document.getElementById('f-rate').value) || 0;
+      db.timeEntries.push(entry);
+      save(); closeModal(); renderAll();
+    });
+  }
+
+  // ---------- Tasks ----------
+  function renderTasks() {
+    const el = document.getElementById('tab-tasks');
+    el.innerHTML = `
+      <div class="toolbar"><h2>Tasks</h2><button class="primary" data-action="new-task">+ New Task</button></div>
+      ${db.tasks.length ? `<table><thead><tr><th></th><th>Task</th><th>Job</th><th>Due</th><th></th></tr></thead><tbody>
+        ${db.tasks.slice().sort((a,b)=>(a.dueDate||'').localeCompare(b.dueDate||'')).map(t => {
+          const overdue = !t.done && t.dueDate && t.dueDate < todayStr();
+          return `<tr>
+          <td><input type="checkbox" data-action="toggle-task" data-id="${t.id}" ${t.done ? 'checked' : ''}></td>
+          <td style="${t.done ? 'text-decoration:line-through;color:var(--text-dim)' : ''}">${escapeHtml(t.title)}</td>
+          <td>${escapeHtml(jobName(t.jobId))}</td>
+          <td>${t.dueDate ? `<span class="badge ${overdue ? 'over' : ''}">${fmtDate(t.dueDate)}</span>` : ''}</td>
+          <td><button class="ghost danger" data-action="delete-task" data-id="${t.id}">Delete</button></td>
+        </tr>`;
+        }).join('')}
+      </tbody></table>` : '<div class="empty">No tasks yet.</div>'}
+    `;
+  }
+
+  function taskFormModal() {
+    const task = { id: uid(), done: false };
+    const jobOptions = db.jobs.map(j => `<option value="${j.id}">${escapeHtml(j.name)}</option>`).join('');
+    openModal(`
+      <h3>New Task</h3>
+      <div class="field"><label>Task</label><input id="f-title" placeholder="e.g. Order permit, call inspector"></div>
+      <div class="field"><label>Job</label><select id="f-job"><option value="">— none —</option>${jobOptions}</select></div>
+      <div class="field"><label>Due Date</label><input id="f-due" type="date"></div>
+      <div class="modal-actions">
+        <button class="secondary" data-action="close-modal">Cancel</button>
+        <button class="primary" id="save-task">Save Task</button>
+      </div>
+    `);
+    document.getElementById('save-task').addEventListener('click', () => {
+      task.title = document.getElementById('f-title').value.trim() || 'Untitled task';
+      task.jobId = document.getElementById('f-job').value || null;
+      task.dueDate = document.getElementById('f-due').value;
+      db.tasks.push(task);
+      save(); closeModal(); renderAll();
+    });
+  }
+
+  // ---------- Reports ----------
+  function renderReports() {
+    const el = document.getElementById('tab-reports');
+    const rows = db.jobs.map(j => {
+      const cost = jobActualCost(j.id);
+      const invoiced = jobInvoicedTotal(j.id);
+      const margin = invoiced - cost;
+      return { job: j, cost, invoiced, margin };
+    }).sort((a, b) => b.margin - a.margin);
+
+    const totalInvoiced = rows.reduce((s, r) => s + r.invoiced, 0);
+    const totalCost = rows.reduce((s, r) => s + r.cost, 0);
+
+    el.innerHTML = `
+      <div class="toolbar"><h2>Job Profitability</h2></div>
+      <div class="cards">
+        <div class="stat"><div class="label">Total Invoiced</div><div class="value">${fmtMoney(totalInvoiced)}</div></div>
+        <div class="stat"><div class="label">Total Cost</div><div class="value">${fmtMoney(totalCost)}</div></div>
+        <div class="stat"><div class="label">Net Margin</div><div class="value ${(totalInvoiced-totalCost) < 0 ? 'warn' : 'ok'}">${fmtMoney(totalInvoiced-totalCost)}</div></div>
+      </div>
+      ${rows.length ? `<table><thead><tr><th>Job</th><th>Status</th><th class="num">Invoiced</th><th class="num">Cost</th><th class="num">Margin</th></tr></thead><tbody>
+        ${rows.map(r => `<tr>
+          <td>${escapeHtml(r.job.name)}</td>
+          <td><span class="badge ${r.job.status}">${escapeHtml(r.job.status)}</span></td>
+          <td class="num">${fmtMoney(r.invoiced)}</td>
+          <td class="num">${fmtMoney(r.cost)}</td>
+          <td class="num"><span class="badge ${r.margin < 0 ? 'over' : 'active'}">${fmtMoney(r.margin)}</span></td>
+        </tr>`).join('')}
+      </tbody></table>` : '<div class="empty">No jobs yet.</div>'}
+    `;
+  }
+
+  // ---------- Modal helpers ----------
+  const backdrop = document.getElementById('modal-backdrop');
+  function openModal(html) {
+    document.getElementById('modal').innerHTML = html;
+    backdrop.classList.add('open');
+  }
+  function closeModal() {
+    backdrop.classList.remove('open');
+    document.getElementById('modal').innerHTML = '';
+  }
+  backdrop.addEventListener('click', e => { if (e.target === backdrop) closeModal(); });
+
+  // ---------- Global click delegation ----------
+  document.body.addEventListener('click', e => {
+    const btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    const action = btn.dataset.action;
+    const id = btn.dataset.id;
+
+    switch (action) {
+      case 'close-modal': closeModal(); break;
+
+      case 'new-job': jobFormModal(); break;
+      case 'edit-job': jobFormModal(db.jobs.find(j => j.id === id)); break;
+      case 'delete-job':
+        if (confirm('Delete this job? Related bills, invoices, time entries, and tasks will remain but be unlinked.')) {
+          db.jobs = db.jobs.filter(j => j.id !== id);
+          save(); renderAll();
+        }
+        break;
+
+      case 'new-client': clientFormModal(); break;
+      case 'edit-client': clientFormModal(db.clients.find(c => c.id === id)); break;
+      case 'delete-client':
+        if (confirm('Delete this client?')) { db.clients = db.clients.filter(c => c.id !== id); save(); renderAll(); }
+        break;
+
+      case 'new-vendor': vendorFormModal(); break;
+      case 'edit-vendor': vendorFormModal(db.vendors.find(v => v.id === id)); break;
+      case 'delete-vendor':
+        if (confirm('Delete this vendor?')) { db.vendors = db.vendors.filter(v => v.id !== id); save(); renderAll(); }
+        break;
+
+      case 'new-invoice':
+        if (!db.jobs.length) { alert('Create a job first.'); break; }
+        invoiceFormModal();
+        break;
+      case 'edit-invoice': invoiceFormModal(db.invoices.find(i => i.id === id)); break;
+      case 'print-invoice': printInvoice(db.invoices.find(i => i.id === id)); break;
+      case 'delete-invoice':
+        if (confirm('Delete this invoice?')) { db.invoices = db.invoices.filter(i => i.id !== id); save(); renderAll(); }
+        break;
+
+      case 'new-bill': billFormModal(); break;
+      case 'edit-bill': billFormModal(db.bills.find(b => b.id === id)); break;
+      case 'delete-bill':
+        if (confirm('Delete this bill?')) { db.bills = db.bills.filter(b => b.id !== id); save(); renderAll(); }
+        break;
+
+      case 'new-time':
+        if (!db.jobs.length) { alert('Create a job first.'); break; }
+        timeFormModal();
+        break;
+      case 'approve-time': {
+        const t = db.timeEntries.find(x => x.id === id);
+        if (t) { t.approved = true; save(); renderAll(); }
+        break;
+      }
+      case 'delete-time':
+        if (confirm('Delete this time entry?')) { db.timeEntries = db.timeEntries.filter(t => t.id !== id); save(); renderAll(); }
+        break;
+
+      case 'new-task': taskFormModal(); break;
+      case 'toggle-task': {
+        const t = db.tasks.find(x => x.id === id);
+        if (t) { t.done = btn.checked; save(); renderAll(); }
+        break;
+      }
+      case 'delete-task':
+        if (confirm('Delete this task?')) { db.tasks = db.tasks.filter(t => t.id !== id); save(); renderAll(); }
+        break;
+    }
+  });
+
+  // ---------- init ----------
+  document.getElementById('today').textContent = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  renderDashboard();
+})();
+</script>
+</body>
+</html>
