@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Caterin">
+  <defs>
+    <linearGradient id="g" x1="12" y1="8" x2="52" y2="56" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5f8a68"/>
+      <stop offset="1" stop-color="#2c4a35"/>
+    </linearGradient>
+  </defs>
+  <circle cx="32" cy="32" r="30" fill="url(#g)"/>
+  <circle cx="32" cy="32" r="14" fill="#f3ecdc" opacity="0.92"/>
+  <path d="M18 44c6-8 10-10 14-10s8 2 14 10" fill="none" stroke="#c9d7c8" stroke-width="3" stroke-linecap="round"/>
+</svg>

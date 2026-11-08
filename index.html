@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Caterin — catering operations for events, menus, orders, and clients." />
+  <title>Caterin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/shell.css" />
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <div class="app">
+    <aside class="sidebar" aria-label="Primary">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div class="brand-text">
+          <span class="brand-name">Caterin</span>
+          <span class="brand-tag">Operations</span>
+        </div>
+      </div>
+
+      <nav class="nav" aria-label="Main">
+        <button type="button" class="nav-item is-active" data-view="home" aria-current="page">
+          <span class="nav-icon" aria-hidden="true">◆</span>
+          Home
+        </button>
+        <button type="button" class="nav-item" data-view="events">
+          <span class="nav-icon" aria-hidden="true">◇</span>
+          Events
+        </button>
+        <button type="button" class="nav-item" data-view="menus">
+          <span class="nav-icon" aria-hidden="true">◇</span>
+          Menus
+        </button>
+        <button type="button" class="nav-item" data-view="orders">
+          <span class="nav-icon" aria-hidden="true">◇</span>
+          Orders
+        </button>
+        <button type="button" class="nav-item" data-view="clients">
+          <span class="nav-icon" aria-hidden="true">◇</span>
+          Clients
+        </button>
+      </nav>
+
+      <p class="sidebar-foot">Shell foundation · v0.1</p>
+    </aside>
+
+    <div class="workspace">
+      <header class="topbar">
+        <button type="button" class="menu-toggle" id="menu-toggle" aria-label="Open navigation" aria-expanded="false" aria-controls="mobile-nav">
+          <span></span><span></span>
+        </button>
+        <p class="topbar-context" id="topbar-context">Home</p>
+        <div class="topbar-actions">
+          <button type="button" class="ghost-btn" data-goto="events">New event</button>
+        </div>
+      </header>
+
+      <nav class="mobile-nav" id="mobile-nav" hidden>
+        <button type="button" class="nav-item is-active" data-view="home">Home</button>
+        <button type="button" class="nav-item" data-view="events">Events</button>
+        <button type="button" class="nav-item" data-view="menus">Menus</button>
+        <button type="button" class="nav-item" data-view="orders">Orders</button>
+        <button type="button" class="nav-item" data-view="clients">Clients</button>
+      </nav>
+
+      <main id="main">
+        <section class="view is-active" id="view-home" data-title="Home" aria-label="Home">
+          <div class="hero">
+            <div class="hero-copy">
+              <p class="hero-brand">Caterin</p>
+              <h1>Service that stays composed.</h1>
+              <p class="hero-lede">One shell for the work that fills a catering day — events, menus, orders, and the people behind them.</p>
+              <div class="hero-cta">
+                <button type="button" class="primary-btn" data-goto="events">Open events</button>
+                <button type="button" class="text-btn" data-goto="menus">Browse menus</button>
+              </div>
+            </div>
+            <div class="hero-visual" role="img" aria-label="Styled catering table setting with linen and greens">
+              <div class="hero-plate"></div>
+              <div class="hero-linen"></div>
+              <div class="hero-sprig"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="view-events" data-title="Events" hidden aria-label="Events">
+          <header class="view-head">
+            <h1>Events</h1>
+            <p>Schedule and run service days. Detail views land here next.</p>
+          </header>
+          <ul class="quiet-list">
+            <li>
+              <span class="quiet-title">Saturday tasting — River House</span>
+              <span class="quiet-meta">Apr 12 · 48 covers</span>
+            </li>
+            <li>
+              <span class="quiet-title">Corporate lunch — North Yard</span>
+              <span class="quiet-meta">Apr 15 · 120 covers</span>
+            </li>
+            <li>
+              <span class="quiet-title">Garden wedding — Oak Lane</span>
+              <span class="quiet-meta">Apr 19 · 86 covers</span>
+            </li>
+          </ul>
+        </section>
+
+        <section class="view" id="view-menus" data-title="Menus" hidden aria-label="Menus">
+          <header class="view-head">
+            <h1>Menus</h1>
+            <p>Seasonal boards and package builds. Placeholder shell only.</p>
+          </header>
+          <ul class="quiet-list">
+            <li>
+              <span class="quiet-title">Spring garden tasting</span>
+              <span class="quiet-meta">5 courses · plated</span>
+            </li>
+            <li>
+              <span class="quiet-title">Workshop lunch board</span>
+              <span class="quiet-meta">Family style</span>
+            </li>
+            <li>
+              <span class="quiet-title">Cocktail hour canapés</span>
+              <span class="quiet-meta">Passed · 12 pcs/guest</span>
+            </li>
+          </ul>
+        </section>
+
+        <section class="view" id="view-orders" data-title="Orders" hidden aria-label="Orders">
+          <header class="view-head">
+            <h1>Orders</h1>
+            <p>Produce, rental, and kitchen pulls tied to events.</p>
+          </header>
+          <ul class="quiet-list">
+            <li>
+              <span class="quiet-title">Produce pull — River House</span>
+              <span class="quiet-meta">Due Thu · Kitchen</span>
+            </li>
+            <li>
+              <span class="quiet-title">Linen &amp; glassware — Oak Lane</span>
+              <span class="quiet-meta">Due Fri · Rentals</span>
+            </li>
+          </ul>
+        </section>
+
+        <section class="view" id="view-clients" data-title="Clients" hidden aria-label="Clients">
+          <header class="view-head">
+            <h1>Clients</h1>
+            <p>Hosts and accounts you’ll return to. Contacts and history later.</p>
+          </header>
+          <ul class="quiet-list">
+            <li>
+              <span class="quiet-title">Mira Chen</span>
+              <span class="quiet-meta">Wedding · Oak Lane</span>
+            </li>
+            <li>
+              <span class="quiet-title">North Yard Collective</span>
+              <span class="quiet-meta">Corporate · recurring</span>
+            </li>
+            <li>
+              <span class="quiet-title">River House Events</span>
+              <span class="quiet-meta">Venue partner</span>
+            </li>
+          </ul>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <div class="backdrop" id="backdrop" hidden></div>
+  <script src="js/shell.js"></script>
+</body>
+</html>
